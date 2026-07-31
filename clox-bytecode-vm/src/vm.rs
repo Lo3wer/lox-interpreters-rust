@@ -1,17 +1,20 @@
 use crate::common::{Chunk,OpCode};
 use crate::value::{print_value, Value};
+#[cfg(feature = "debug_trace_execution")]
 use crate::debug::disassemble_instruction;
 
 pub struct VM<'a> { 
     chunk: Option<&'a Chunk>,
-    ip: usize
+    ip: usize,
+    stack: Vec<Value>,
 }
 
 impl<'a> VM<'a> {
     pub fn new() -> Self {
         VM {
             chunk: None,
-            ip: 0
+            ip: 0,
+            stack: Vec::new(),
         }
     }
 
@@ -25,24 +28,33 @@ impl<'a> VM<'a> {
         let chunk = self.chunk.unwrap();
         let code = chunk.code();
         loop {
-            #[cfg(feature = "debug_trace_execution")]
-            disassemble_instruction(chunk, self.ip);
+            #[cfg(feature = "debug_trace_execution")] {
+                print!("          ");
+                for value in self.stack {
+                    print!("[ ");
+                    print_value(value);
+                    print!(" ]");
+                }
+                println!("");
+                disassemble_instruction(chunk, self.ip);
+            }
             match OpCode::from_u8(self.read_byte(code)) {
                 Some(OpCode::OpReturn) => {
+                    let value = match self.stack.pop() {
+                        Some(v) => v,
+                        None => return InterpretResult::InterpretRuntimeError,
+                    };
+                    print_value(value);
+                    println!("");
                     return InterpretResult::InterpretOk;
                 }
                 Some(OpCode::OpConstant) => {
                     let constant = self.read_constant(chunk, code);
-                    print_value(constant);
-                    println!();
+                    self.stack.push(constant);
                 }
                 Some(OpCode::OpConstantLong) => {
-                    let index = ((self.read_byte(code) as usize) << 16)
-                        | ((self.read_byte(code) as usize) << 8)
-                        | (self.read_byte(code) as usize);
-                    let constant = chunk.constants()[index];
-                    print_value(constant);
-                    println!();
+                    let constant = self.read_long_constant(chunk, code);
+                    self.stack.push(constant);
                 }
                 None => {
                     return InterpretResult::InterpretRuntimeError;
@@ -59,6 +71,13 @@ impl<'a> VM<'a> {
 
     fn read_constant(&mut self, chunk: &Chunk, code: &[u8]) -> Value {
         chunk.constants()[self.read_byte(code) as usize]
+    }
+
+    fn read_long_constant(&mut self, chunk: &Chunk, code: &[u8]) -> Value {
+        let index = ((self.read_byte(code) as usize) << 16)
+            | ((self.read_byte(code) as usize) << 8)
+            | (self.read_byte(code) as usize);
+        chunk.constants()[index]
     }
 }
 
