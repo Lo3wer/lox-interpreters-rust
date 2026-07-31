@@ -1,4 +1,4 @@
-use lox_ast_rust::lox::Lox;
+use jlox_treewalk_interpreter::lox::Lox;
 use std::process;
 use std::env;
 

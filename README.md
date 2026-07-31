@@ -8,8 +8,8 @@ runner that executes the suite against any interpreter's CLI.
 
 | Directory                          | Description                                              |
 |------------------------------------|----------------------------------------------------------|
-| `jlox-treewalk-interpreter-rust/`  | jlox: AST tree-walk interpreter                          |
-| `clox-bytecode-vm-rust/`           | clox: bytecode virtual machine (scaffolded, WIP)         |
+| `jlox-treewalk-interpreter/`       | jlox: AST tree-walk interpreter                          |
+| `clox-bytecode-vm/`                | clox: bytecode virtual machine (scaffolded, WIP)         |
 | `test/`                            | Shared Lox test suite (`.lox` files with `// expect:` annotations) |
 | `test-runner/`                     | Test runner that runs the shared suite against an interpreter CLI |
 | `documentation/`                   | Notes on the Lox grammar and the jlox pipeline           |
@@ -20,14 +20,14 @@ runner that executes the suite against any interpreter's CLI.
 ### jlox (tree-walk interpreter)
 
 ```sh
-cargo run --manifest-path jlox-treewalk-interpreter-rust/Cargo.toml -- path/to/script.lox
-cargo run --manifest-path jlox-treewalk-interpreter-rust/Cargo.toml   # interactive REPL
+cargo run --manifest-path jlox-treewalk-interpreter/Cargo.toml -- path/to/script.lox
+cargo run --manifest-path jlox-treewalk-interpreter/Cargo.toml   # interactive REPL
 ```
 
 ### clox (bytecode VM)
 
 ```sh
-cargo build --manifest-path clox-bytecode-vm-rust/Cargo.toml
+cargo build --manifest-path clox-bytecode-vm/Cargo.toml
 ```
 
 The clox crate is a bare `cargo init` skeleton — the VM is not implemented yet.
@@ -40,7 +40,7 @@ Each implementation keeps its unit tests (`#[cfg(test)]` modules) inside its
 own crate:
 
 ```sh
-cargo test --manifest-path jlox-treewalk-interpreter-rust/Cargo.toml
+cargo test --manifest-path jlox-treewalk-interpreter/Cargo.toml
 ```
 
 ### Shared Lox test suite
@@ -49,11 +49,26 @@ The suite in `test/` is shared by all implementations. Build an interpreter
 binary, then point the test runner at it:
 
 ```sh
-cargo build --manifest-path jlox-treewalk-interpreter-rust/Cargo.toml
+cargo build --manifest-path jlox-treewalk-interpreter/Cargo.toml
 
 cargo run --manifest-path test-runner/Cargo.toml -- \
-  jlox-treewalk-interpreter-rust/target/debug/lox-ast-rust \
+  jlox-treewalk-interpreter/target/debug/jlox-treewalk-interpreter \
   test
+```
+
+On Windows, the jlox binary is named `jlox-treewalk-interpreter.exe`, so use
+`jlox-treewalk-interpreter/target/debug/jlox-treewalk-interpreter.exe` instead.
+
+To match exactly what CI runs (skipping the chapter and limit tests that a
+complete tree-walk interpreter can never satisfy):
+
+```sh
+cargo run --manifest-path test-runner/Cargo.toml -- \
+  jlox-treewalk-interpreter/target/debug/jlox-treewalk-interpreter \
+  test \
+  --skip test/scanning \
+  --skip test/expressions \
+  --skip test/limit
 ```
 
 The runner:
@@ -69,8 +84,8 @@ The runner:
 Options:
 
 - `--language <tag>` — also match implementation-specific error annotations
-  like `// [c line N]` (clox) or `// [java line N]` (jlox) in addition to
-  bare `// [line N]` ones. Default: bare only.
+  like `// [treewalk line N]` (jlox) or `// [bytecode vm line N]` (clox) in
+  addition to bare `// [line N]` ones. Default: bare only.
 - `--skip <substring>` — skip any test whose path contains the substring.
   May be repeated.
 

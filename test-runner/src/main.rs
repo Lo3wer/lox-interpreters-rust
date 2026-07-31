@@ -15,7 +15,8 @@ a Lox script path as its first argument can be tested.
 Annotations understood (one per line):
   // expect: <output>              an expected stdout line, in order
   // [line N] Error <message>      an expected compile error
-  // [c line N] / [java line N]    implementation-specific compile errors
+  // [treewalk line N] / [bytecode vm line N]
+  //                               implementation-specific compile errors
   // Error <message>               a compile error (uses the comment's line)
   // expect runtime error: <msg>   the expected runtime error message
   // nontest                       marks the file as not a test
@@ -23,7 +24,8 @@ Annotations understood (one per line):
 Options:
   --language <tag>  Match implementation-specific '[<tag> line N]' error
                     annotations in addition to bare '[line N]' ones.
-                    (e.g. --language c or --language java). Default: bare only.
+                    (e.g. --language treewalk or --language 'bytecode vm').
+                    Default: bare only.
   --skip <substr>   Skip any test whose path contains <substr>.
                     May be given multiple times.
   -h, --help        Show this help.
@@ -242,7 +244,7 @@ fn extract_after<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
 }
 
 /// Parses a `// [line N] Error ...` annotation, honoring an optional
-/// language tag such as `// [c line N]` or `// [java line N]`.
+/// language tag such as `// [treewalk line N]` or `// [bytecode vm line N]`.
 fn parse_bracket_error(line: &str, language: &str) -> Option<(usize, String)> {
     let rest = line.strip_prefix("// [")?;
     let (tag, after_tag) = rest.split_once("line ")?;

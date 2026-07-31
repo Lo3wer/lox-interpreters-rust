@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "lox-ast-rust"
+name = "clox-bytecode-vm"
 version = "0.1.0"

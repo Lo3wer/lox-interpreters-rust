@@ -6,25 +6,27 @@
     "configurations": [
 
         {
-            "name": "Debug executable 'lox-ast-rust'",
+            "name": "Debug executable 'jlox-treewalk-interpreter'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "run",
-                    "--bin=lox-ast-rust"
+                    "--manifest-path=jlox-treewalk-interpreter/Cargo.toml",
+                    "--bin=jlox-treewalk-interpreter"
                 ]
             },
             "args": ["programs/test.lox"]
         },
         {
-            "name": "Debug unit tests in executable 'lox-ast-rust'",
+            "name": "Debug unit tests in executable 'jlox-treewalk-interpreter'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "test",
-                    "--bin=lox-ast-rust"
+                    "--manifest-path=jlox-treewalk-interpreter/Cargo.toml",
+                    "--bin=jlox-treewalk-interpreter"
                 ]
             }
         }

@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "clox-bytecode-vm-rust"
+name = "jlox-treewalk-interpreter"
 version = "0.1.0"
