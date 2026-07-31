@@ -1,7 +1,16 @@
-use crate::common::{Chunk,OpCode};
+use crate::chunk::{Chunk,OpCode};
 use crate::value::{print_value, Value};
 #[cfg(feature = "debug_trace_execution")]
 use crate::debug::disassemble_instruction;
+
+macro_rules! pop {
+    ($vm:expr) => {
+        match $vm.stack.pop() {
+            Some(value) => value,
+            None => return InterpretResult::InterpretRuntimeError,
+        }
+    };
+}
 
 pub struct VM<'a> { 
     chunk: Option<&'a Chunk>,
@@ -30,9 +39,9 @@ impl<'a> VM<'a> {
         loop {
             #[cfg(feature = "debug_trace_execution")] {
                 print!("          ");
-                for value in self.stack {
+                for value in &self.stack {
                     print!("[ ");
-                    print_value(value);
+                    print_value(*value);
                     print!(" ]");
                 }
                 println!("");
@@ -40,10 +49,7 @@ impl<'a> VM<'a> {
             }
             match OpCode::from_u8(self.read_byte(code)) {
                 Some(OpCode::OpReturn) => {
-                    let value = match self.stack.pop() {
-                        Some(v) => v,
-                        None => return InterpretResult::InterpretRuntimeError,
-                    };
+                    let value = pop!(self);
                     print_value(value);
                     println!("");
                     return InterpretResult::InterpretOk;
@@ -55,6 +61,10 @@ impl<'a> VM<'a> {
                 Some(OpCode::OpConstantLong) => {
                     let constant = self.read_long_constant(chunk, code);
                     self.stack.push(constant);
+                }
+                Some(OpCode::OpNegate) => {
+                    let value = pop!(self);
+                    self.stack.push(-value);
                 }
                 None => {
                     return InterpretResult::InterpretRuntimeError;

@@ -5,6 +5,7 @@ pub enum OpCode {
     OpReturn = 0,
     OpConstant = 1,
     OpConstantLong = 2,
+    OpNegate = 3,
 }
 
 impl OpCode {
@@ -13,6 +14,7 @@ impl OpCode {
             0 => Some(OpCode::OpReturn),
             1 => Some(OpCode::OpConstant),
             2 => Some(OpCode::OpConstantLong),
+            3 => Some(OpCode::OpNegate),
             _ => None,
         }
     }

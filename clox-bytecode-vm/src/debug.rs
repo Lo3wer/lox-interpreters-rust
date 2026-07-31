@@ -1,4 +1,4 @@
-use crate::common::{Chunk, OpCode};
+use crate::chunk::{Chunk, OpCode};
 use crate::value::print_value;
 
 pub fn disassemble_chunk(chunk: &Chunk, name: &str) {
@@ -39,9 +39,10 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
         Some(OpCode::OpReturn) => simple_instruction("OP_RETURN", offset),
         Some(OpCode::OpConstant) => constant_instruction("OP_CONSTANT", chunk, offset),
         Some(OpCode::OpConstantLong) => constant_long_instruction("OP_CONSTANT_LONG", chunk, offset),
-        _ => {
+        Some(OpCode::OpNegate) => simple_instruction("OP_NEGATE", offset),
+        None => {
             println!("Unknown opcode {}", chunk.code()[offset]);
             offset + 1
-        }
+        },
     }
 }
