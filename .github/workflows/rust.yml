@@ -11,12 +11,35 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+
+    - name: Build jlox treewalk interpreter
+      run: cargo build --verbose --manifest-path jlox-treewalk-interpreter-rust/Cargo.toml
+
+    - name: Run jlox unit tests
+      run: cargo test --verbose --manifest-path jlox-treewalk-interpreter-rust/Cargo.toml
+
+    - name: Run shared Lox test suite against jlox
+      run: >
+        cargo run --quiet --manifest-path test-runner/Cargo.toml --
+        jlox-treewalk-interpreter-rust/target/debug/lox-ast-rust
+        test
+        --skip test/scanning
+        --skip test/expressions
+        --skip test/limit
+
+    # When the clox bytecode VM has a CLI, add:
+    #
+    #   - name: Build clox bytecode VM
+    #     run: cargo build --verbose --manifest-path clox-bytecode-vm-rust/Cargo.toml
+    #
+    #   - name: Run clox unit tests
+    #     run: cargo test --verbose --manifest-path clox-bytecode-vm-rust/Cargo.toml
+    #
+    #   - name: Run shared Lox test suite against clox
+    #     run: >
+    #       cargo run --quiet --manifest-path test-runner/Cargo.toml --
+    #       clox-bytecode-vm-rust/target/debug/clox-bytecode-vm-rust
+    #       test --language c
