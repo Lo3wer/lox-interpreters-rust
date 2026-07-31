@@ -33,12 +33,12 @@ fn constant_long_instruction(name: &str, chunk: &Chunk, offset: usize) -> usize 
     offset + 4
 }
 
-fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
+pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
     print!("{:04} {:4} ", offset, chunk.get_line(offset));
     match OpCode::from_u8(chunk.code()[offset]) {
+        Some(OpCode::OpReturn) => simple_instruction("OP_RETURN", offset),
         Some(OpCode::OpConstant) => constant_instruction("OP_CONSTANT", chunk, offset),
         Some(OpCode::OpConstantLong) => constant_long_instruction("OP_CONSTANT_LONG", chunk, offset),
-        Some(OpCode::OpReturn) => simple_instruction("OP_RETURN", offset),
         _ => {
             println!("Unknown opcode {}", chunk.code()[offset]);
             offset + 1
