@@ -96,7 +96,7 @@ impl Parser {
         if !self.check(&TokenType::RightParen) {
             loop {
                 if params.len() >= 255 {
-                    return Err(self.error(self.peek(), "Cannot have more than 255 parameters."));
+                    return Err(self.error(self.peek(), "Can't have more than 255 parameters."));
                 }
                 params.push(self.consume(TokenType::Identifier, "Expect parameter name.")?.clone());
                 if !self.match_token(&[TokenType::Comma]) {
@@ -106,7 +106,7 @@ impl Parser {
         }
 
         self.consume(TokenType::RightParen, "Expect ')' after parameters.")?;
-        self.consume(TokenType::LeftBrace, &format!("Expect {} body.", kind))?;
+        self.consume(TokenType::LeftBrace, &format!("Expect '{{' before {} body.", kind))?;
         let body = self.block()?;
 
         Ok(Stmt::Function { name, params, body })
@@ -246,7 +246,13 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
-            statements.push(self.declaration()?);
+            match self.declaration() {
+                Ok(stmt) => statements.push(stmt),
+                Err(err) => {
+                    self.errors.push(err);
+                    self.synchronize();
+                }
+            }
         }
 
         self.consume(TokenType::RightBrace, "Expect '}' after block.")?;
@@ -480,7 +486,7 @@ impl Parser {
         if !self.check(&TokenType::RightParen) {
             loop {
                 if arguments.len() >= 255 {
-                    return Err(self.error(self.peek(), "Cannot have more than 255 arguments."));
+                    return Err(self.error(self.peek(), "Can't have more than 255 arguments."));
                 }
                 arguments.push(self.assignment()?);
                 if !self.match_token(&[TokenType::Comma]) {
@@ -534,7 +540,7 @@ impl Parser {
 
         // error productions
 
-        Err(self.error(self.peek(), "Expected expression."))
+        Err(self.error(self.peek(), "Expect expression."))
     }
 
     // Token stream helpers

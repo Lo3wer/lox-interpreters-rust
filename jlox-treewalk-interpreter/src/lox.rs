@@ -37,18 +37,17 @@ impl Lox {
     }
 
     fn report_resolve_error(&mut self, error: &ResolveError) {
-        self.report(error.token.line(), "", &error.message);
-        self.had_error = true;
+        let where_ = if error.token.token_type() == TokenType::Eof {
+            " at end".to_string()
+        } else {
+            format!(" at '{}'", error.token.lexeme())
+        };
+        self.report(error.token.line(), &where_, &error.message);
     }
 
     fn report_runtime_error(&mut self, error: &RuntimeException) {
-        match error {
-            RuntimeException::Error { token, message } => {
-                self.report(token.line(), "", message);
-            }
-            RuntimeException::Return { value: _ } => {
-                // Handle return statement errors if needed
-            }
+        if let RuntimeException::Error { token, message } = error {
+            eprintln!("[line {}] Error: {}", token.line(), message);
         }
         self.had_runtime_error = true;
     }
@@ -118,8 +117,10 @@ impl Lox {
         let mut resolver = crate::resolver::Resolver::new(&mut evaluator);
         match resolver.resolve(&statements) {
             Ok(()) => {},
-            Err(error) => {
-                self.report_resolve_error(&error);
+            Err(errors) => {
+                for error in &errors {
+                    self.report_resolve_error(error);
+                }
                 return;
             }
         }

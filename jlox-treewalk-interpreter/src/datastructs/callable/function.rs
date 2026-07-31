@@ -11,6 +11,7 @@ use crate::environment::{Environment, EnvRef};
 use crate::evaluator::Evaluator;
 
 pub struct FunctionCallable {
+    name: String,
     params: Vec<Token>,
     body: Vec<Stmt>,
     closure: EnvRef,
@@ -18,14 +19,14 @@ pub struct FunctionCallable {
 }
 
 impl FunctionCallable {
-    pub fn new(params: Vec<Token>, body: Vec<Stmt>, closure: EnvRef, is_initializer: bool) -> Self {
-        FunctionCallable { params, body, closure, is_initializer }
+    pub fn new(name: String, params: Vec<Token>, body: Vec<Stmt>, closure: EnvRef, is_initializer: bool) -> Self {
+        FunctionCallable { name, params, body, closure, is_initializer }
     }
 }
 
 impl fmt::Display for FunctionCallable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<fn>")
+        write!(f, "<fn {}>", self.name)
     }
 }
 
@@ -36,6 +37,7 @@ impl Callable for FunctionCallable {
         let bound_env = Environment::new_enclosed(self.closure.clone());
         bound_env.borrow_mut().define(&Token::identifier("this"), Literal::Instance(instance));
         Rc::new(FunctionCallable {
+            name: self.name.clone(),
             params: self.params.clone(),
             body: self.body.clone(),
             closure: bound_env,
@@ -52,13 +54,14 @@ impl Callable for FunctionCallable {
         for (param, arg) in self.params.iter().zip(arguments.iter()) {
             function_env.borrow_mut().define(param, arg.clone());
         }
+        let result = match evaluator.execute_block(&self.body, function_env) {
+            Ok(()) => Literal::Nil,
+            Err(RuntimeException::Return { value }) => value,
+            Err(err) => return Err(err),
+        };
         if self.is_initializer {
-            return self.closure.borrow().get_at(0, &Token::identifier("init"));
+            return self.closure.borrow().get_at(0, &Token::identifier("this"));
         }
-        match evaluator.execute_block(&self.body, function_env) {
-            Ok(()) => Ok(Literal::Nil),
-            Err(RuntimeException::Return { value }) => Ok(value),
-            Err(err) => Err(err),
-        }
+        Ok(result)
     }
 }

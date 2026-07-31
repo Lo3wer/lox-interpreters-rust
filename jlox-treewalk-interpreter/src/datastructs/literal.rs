@@ -21,7 +21,7 @@ impl PartialEq for Literal {
             (Literal::String(a), Literal::String(b)) => a == b,
             (Literal::Number(a), Literal::Number(b)) => a == b,
             (Literal::Nil, Literal::Nil) => true,
-            (Literal::Callable(_), Literal::Callable(_)) => false,
+            (Literal::Callable(a), Literal::Callable(b)) => Rc::ptr_eq(a, b),
             (Literal::Instance(a), Literal::Instance(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }

@@ -12,7 +12,7 @@ pub struct ClockCallable;
 
 impl fmt::Display for ClockCallable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<fn clock>")
+        write!(f, "<native fn>")
     }
 }
 

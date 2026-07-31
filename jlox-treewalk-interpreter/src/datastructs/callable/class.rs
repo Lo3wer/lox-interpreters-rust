@@ -32,7 +32,7 @@ impl Class {
 
 impl fmt::Display for Class {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<class {}>", self.name)
+        write!(f, "{}", self.name)
     }
 }
 
@@ -52,7 +52,7 @@ impl Callable for Class {
     }
 
     fn call(&self, evaluator: &mut Evaluator, arguments: &[Literal]) -> Result<Literal, RuntimeException> {
-        let instance = Rc::new(RefCell::new(Instance::new(self.name.clone(), self.methods.clone())));
+        let instance = Rc::new(RefCell::new(Instance::new(Rc::new(self.clone()))));
         let initializer = self.find_method("init");
         if let Some(initializer) = initializer {
             initializer.bind(instance.clone()).call(evaluator, arguments)?;

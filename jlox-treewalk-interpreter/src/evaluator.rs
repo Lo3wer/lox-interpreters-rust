@@ -98,7 +98,7 @@ impl Evaluator {
         let mut method_map = HashMap::new();
         for method in methods {
             if let Stmt::Function { name: method_name, params, body } = method {
-                let function = Rc::new(FunctionCallable::new(params.to_vec(), body.to_vec(), self.environment.clone(), method_name.lexeme() == "init"));
+                let function = Rc::new(FunctionCallable::new(method_name.lexeme().to_string(), params.to_vec(), body.to_vec(), self.environment.clone(), method_name.lexeme() == "init"));
                 method_map.insert(method_name.lexeme().to_string(), function as Rc<dyn Callable>);
             }
         }
@@ -168,7 +168,7 @@ impl Evaluator {
     }
 
     fn function_stmt(&mut self, name: &Token, params: &[Token], body: &[Stmt]) -> Result<(), RuntimeException> {
-        let function = Literal::Callable(Rc::new(FunctionCallable::new(params.to_vec(), body.to_vec(), self.environment.clone(), false)));
+        let function = Literal::Callable(Rc::new(FunctionCallable::new(name.lexeme().to_string(), params.to_vec(), body.to_vec(), self.environment.clone(), false)));
         self.environment.borrow_mut().define(name, function);
         Ok(())
     }
@@ -318,13 +318,7 @@ impl Evaluator {
                 (Literal::String(l), Literal::String(r)) => {
                     Ok(Literal::String(format!("{}{}", l, r)))
                 }
-                (Literal::String(l), Literal::Number(r)) => {
-                    Ok(Literal::String(format!("{}{}", l, r)))
-                }
-                (Literal::Number(l), Literal::String(r)) => {
-                    Ok(Literal::String(format!("{}{}", l, r)))
-                }
-                _ => Err(self.runtime_error(operator, "Operands must be two numbers or atleast one string.")),
+                _ => Err(self.runtime_error(operator, "Operands must be two numbers or two strings.")),
         }
     }
 
@@ -341,14 +335,10 @@ impl Evaluator {
         }
     }
 
-    /// Handles division and checks for division by zero.
+    /// Handles division. Follows IEEE 754 semantics, so dividing by zero
+    /// yields inf/NaN rather than a runtime error.
     fn division_binary(&self, left: &Literal, operator: &Token, right: &Literal) -> Result<Literal, RuntimeException> {
-        match (left, right) {
-            (Literal::Number(l), Literal::Number(r)) if *r == 0.0 => {
-                Err(self.runtime_error(operator, "Division by zero."))
-            }
-            _ => self.numeric_binary(left, operator, right, |l, r| Literal::Number(l / r)),
-        }
+        self.numeric_binary(left, operator, right, |l, r| Literal::Number(l / r))
     }
 
     /// Uses the std::cmp::Ordering to compare two literals and applies the provided comparison function.
@@ -364,7 +354,7 @@ impl Evaluator {
 
         match ordering {
             Some(ord) => Ok(Literal::Bool(combine(ord))),
-            None => Err(self.runtime_error(operator, "Operands must be two numbers or two strings.")),
+            None => Err(self.runtime_error(operator, "Operands must be numbers.")),
         }
     }
 
@@ -413,12 +403,6 @@ impl Evaluator {
     }
 
     fn is_equal(&self, a: &Literal, b: &Literal) -> bool {
-        match (a, b) {
-            (Literal::Number(l), Literal::Number(r)) => l == r,
-            (Literal::String(l), Literal::String(r)) => l == r,
-            (Literal::Bool(l), Literal::Bool(r)) => l == r,
-            (Literal::Nil, Literal::Nil) => true,
-            _ => false,
-        }
+        a == b
     }
 }
