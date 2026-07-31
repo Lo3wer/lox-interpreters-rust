@@ -1,6 +1,7 @@
 use crate::chunk::{Chunk, OpCode};
 use crate::value::print_value;
 
+#[cfg(feature = "debug_print_code")]
 pub fn disassemble_chunk(chunk: &Chunk, name: &str) {
     println!("== {} ==", name);
 
@@ -40,6 +41,10 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
         Some(OpCode::OpConstant) => constant_instruction("OP_CONSTANT", chunk, offset),
         Some(OpCode::OpConstantLong) => constant_long_instruction("OP_CONSTANT_LONG", chunk, offset),
         Some(OpCode::OpNegate) => simple_instruction("OP_NEGATE", offset),
+        Some(OpCode::OpAdd) => simple_instruction("OP_ADD", offset),
+        Some(OpCode::OpSubtract) => simple_instruction("OP_SUBTRACT", offset),
+        Some(OpCode::OpMultiply) => simple_instruction("OP_MULTIPLY", offset),
+        Some(OpCode::OpDivide) => simple_instruction("OP_DIVIDE", offset),
         None => {
             println!("Unknown opcode {}", chunk.code()[offset]);
             offset + 1

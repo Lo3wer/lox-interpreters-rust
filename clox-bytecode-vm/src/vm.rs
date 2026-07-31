@@ -12,6 +12,14 @@ macro_rules! pop {
     };
 }
 
+macro_rules! binary_op {
+    ($vm:expr, $op:tt) => {{
+        let b = pop!($vm);
+        let a = pop!($vm);
+        $vm.stack.push(a $op b);
+    }};
+}
+
 pub struct VM<'a> { 
     chunk: Option<&'a Chunk>,
     ip: usize,
@@ -66,6 +74,10 @@ impl<'a> VM<'a> {
                     let value = pop!(self);
                     self.stack.push(-value);
                 }
+                Some(OpCode::OpAdd) => binary_op!(self, +),
+                Some(OpCode::OpSubtract) => binary_op!(self, -),
+                Some(OpCode::OpMultiply) => binary_op!(self, *),
+                Some(OpCode::OpDivide) => binary_op!(self, /),
                 None => {
                     return InterpretResult::InterpretRuntimeError;
                 }

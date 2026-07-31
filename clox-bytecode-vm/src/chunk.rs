@@ -6,6 +6,10 @@ pub enum OpCode {
     OpConstant = 1,
     OpConstantLong = 2,
     OpNegate = 3,
+    OpAdd = 4,
+    OpSubtract = 5,
+    OpMultiply = 6,
+    OpDivide = 7,
 }
 
 impl OpCode {
@@ -15,6 +19,10 @@ impl OpCode {
             1 => Some(OpCode::OpConstant),
             2 => Some(OpCode::OpConstantLong),
             3 => Some(OpCode::OpNegate),
+            4 => Some(OpCode::OpAdd),
+            5 => Some(OpCode::OpSubtract),
+            6 => Some(OpCode::OpMultiply),
+            7 => Some(OpCode::OpDivide),
             _ => None,
         }
     }
