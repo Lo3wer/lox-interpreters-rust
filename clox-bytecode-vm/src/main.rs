@@ -1,25 +1,31 @@
 mod chunk;
+mod compiler;
 #[cfg(any(feature = "debug_print_code", feature = "debug_trace_execution"))]
 mod debug;
 mod value;
 mod vm;
+mod lox;
 
-use crate::chunk::{Chunk, OpCode};
-#[cfg(feature = "debug_print_code")]
-use crate::debug::disassemble_chunk;
-use crate::vm::VM;
+use crate::lox::Lox;
+
+use std::env;
+use std::process;
 
 fn main() {
-    let mut chunk = Chunk::new();
-    let mut vm = VM::new();
-    chunk.write_constant(1.2, 1);
-    chunk.write_constant(3.4, 1);
-    chunk.write_opcode(OpCode::OpAdd, 1);
-    chunk.write_constant(5.6,1);
-    chunk.write_opcode(OpCode::OpDivide, 1);
-    chunk.write_opcode(OpCode::OpNegate, 1);
-    chunk.write_opcode(OpCode::OpReturn, 1);
-    #[cfg(feature = "debug_print_code")]
-    disassemble_chunk(&chunk, "test_program");
-    vm.interpret(&chunk);
+    let args: Vec<String> = env::args().collect();
+    let mut lox = Lox::new();
+
+    let result = if args.len() > 2 {
+        println!("Usage: clox [script]");
+        process::exit(64);
+    } else if args.len() == 2 {
+        lox.run_file(&args[1])
+    } else {
+        lox.run_prompt()
+    };
+
+    if let Err(e) = result {
+        eprintln!("{}", e);
+        process::exit(74);
+    }
 }

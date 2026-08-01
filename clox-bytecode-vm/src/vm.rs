@@ -20,29 +20,25 @@ macro_rules! binary_op {
     }};
 }
 
-pub struct VM<'a> { 
-    chunk: Option<&'a Chunk>,
+pub struct VM {
     ip: usize,
     stack: Vec<Value>,
 }
 
-impl<'a> VM<'a> {
+impl VM {
     pub fn new() -> Self {
         VM {
-            chunk: None,
             ip: 0,
             stack: Vec::new(),
         }
     }
 
-    pub fn interpret(&mut self, chunk: &'a Chunk) -> InterpretResult {
-        self.chunk = Some(chunk);
+    pub fn interpret(&mut self, chunk: &Chunk) -> InterpretResult {
         self.ip = 0;
-        self.run()
+        self.run(chunk)
     }
 
-    fn run(&mut self) -> InterpretResult {
-        let chunk = self.chunk.unwrap();
+    fn run(&mut self, chunk: &Chunk) -> InterpretResult {
         let code = chunk.code();
         loop {
             #[cfg(feature = "debug_trace_execution")] {
