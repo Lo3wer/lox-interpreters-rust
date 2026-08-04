@@ -33,9 +33,9 @@ impl VM {
         }
     }
 
-    pub fn interpret(&mut self, chunk: &Chunk) -> InterpretResult {
-        self.ip = 0;
-        self.run(chunk)
+    pub fn interpret(&mut self, source: &str) -> InterpretResult {
+        compile(source);
+        return InterpretResult::InterpretOk;
     }
 
     fn run(&mut self, chunk: &Chunk) -> InterpretResult {
