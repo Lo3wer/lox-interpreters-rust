@@ -1,4 +1,4 @@
-use llox_llvm::lox::Lox;
+use llox_llvm_jit::lox::Lox;
 use std::process;
 use std::env;
 

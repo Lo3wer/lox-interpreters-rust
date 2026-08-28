@@ -1,5 +1,5 @@
 [package]
-name = "llox-llvm-frontend"
+name = "llox-llvm-jit"
 version = "0.1.0"
 edition = "2024"
 
