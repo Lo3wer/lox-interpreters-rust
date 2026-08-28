@@ -117,19 +117,39 @@ impl Lox {
         // Phase 3: codegen consumes `statements` and `resolver.locals()` here.
         let _locals = resolver.locals();
 
-        let llvm_context = Context::create();
-        let mut codegen = CodeGen::new(&llvm_context);
-
-        if let Err(error) = codegen.compile_stmt(&statements[0]) {
-        eprintln!("Code generation error");
+        if statements.is_empty() {
             return;
         }
 
-        let result = unsafe { codegen.run() };
+        let llvm_context = Context::create();
+        let codegen = match CodeGen::new(&llvm_context) {
+            Ok(codegen) => codegen,
+            Err(error) => {
+                eprintln!("Code generation error: {:?}", error);
+                self.had_error = true;
+                return;
+            }
+        };
 
-        match result {
+        if let Err(error) = codegen.compile_stmt(&statements[0]) {
+            eprintln!("Code generation error: {:?}", error);
+            self.had_error = true;
+            return;
+        }
+
+        if std::env::var_os("LLOX_DUMP_IR").is_some() {
+            codegen.dump_ir();
+        }
+        if std::env::var_os("LLOX_DUMP_ASSEMBLY").is_some() {
+            codegen.dump_assembly();
+        }
+
+        match unsafe { codegen.run() } {
             Ok(value) => println!("{value}"),
-            Err(error) => eprintln!("JIT error"),
+            Err(error) => {
+                eprintln!("JIT error: {:?}", error);
+                self.had_error = true;
+            }
         }
     }
 }

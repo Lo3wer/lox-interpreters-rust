@@ -3,8 +3,9 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::values::FloatValue;
 use inkwell::OptimizationLevel;
-use inkwell::targets::{Target, InitializationConfig};
-use crate::datastructs::exceptions::{CodeGenError, RuntimeException};
+use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
+use crate::datastructs::exceptions::CodeGenError;
+use crate::debug::llvm;
 use crate::datastructs::expr::Expr;
 use crate::datastructs::stmt::Stmt;
 use crate::datastructs::literal::Literal;
@@ -14,16 +15,23 @@ pub struct CodeGen<'ctx> {
     pub context: &'ctx Context,
     pub builder: Builder<'ctx>,
     pub module: Module<'ctx>,
+    machine: TargetMachine,
 }
 
 impl<'ctx> CodeGen<'ctx> {
 
-    pub fn new(context: &'ctx Context) -> Self {
-        CodeGen {
+    pub fn new(context: &'ctx Context) -> Result<Self, CodeGenError> {
+        Target::initialize_native(&InitializationConfig::default()).map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
+        let triple = TargetMachine::get_default_triple();
+        let target = Target::from_triple(&triple).map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
+        let machine = target.create_target_machine(&triple, "generic", "", OptimizationLevel::None, RelocMode::Default, CodeModel::Default)
+            .ok_or_else(|| CodeGenError::Llvm { message: "failed to create native target machine".to_string() })?;
+        Ok(CodeGen {
             context,
             builder: context.create_builder(),
             module: context.create_module("llox_module"),
-        }
+            machine,
+        })
     }
 
     pub fn compile_main(&self, expr: &Expr) -> Result<(), CodeGenError> {
@@ -109,10 +117,17 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
-    pub unsafe fn run(&self) -> Result<f64, RuntimeException> {
-        Target::initialize_native(&InitializationConfig::default());
-        let execution_engine = self.module.create_jit_execution_engine(OptimizationLevel::None).map_err(|error| RuntimeException::Llvm { message: error.to_string()})?;
-        let function = execution_engine.get_function::<unsafe extern "C" fn() -> f64>("llox_main").map_err(|error| RuntimeException::Llvm { message: error.to_string()})?;
+    pub fn dump_ir(&self) {
+        llvm::dump_ir(&self.module);
+    }
+
+    pub fn dump_assembly(&self) {
+        llvm::dump_assembly(&self.module, &self.machine);
+    }
+
+    pub unsafe fn run(&self) -> Result<f64, CodeGenError> {
+        let execution_engine = self.module.create_jit_execution_engine(OptimizationLevel::None).map_err(|error| CodeGenError::Llvm { message: error.to_string()})?;
+        let function = execution_engine.get_function::<unsafe extern "C" fn() -> f64>("llox_main").map_err(|error| CodeGenError::Llvm { message: error.to_string()})?;
         Ok(function.call())
     }
 }
