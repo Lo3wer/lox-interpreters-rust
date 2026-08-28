@@ -1,8 +1,10 @@
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::resolver::Resolver;
+use crate::codegen::CodeGen;
 use crate::datastructs::token::TokenType;
 use crate::datastructs::exceptions::{LexError, ParseError, ResolveError};
+use inkwell::context::Context;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::process;
@@ -114,5 +116,20 @@ impl Lox {
 
         // Phase 3: codegen consumes `statements` and `resolver.locals()` here.
         let _locals = resolver.locals();
+
+        let llvm_context = Context::create();
+        let mut codegen = CodeGen::new(&llvm_context);
+
+        if let Err(error) = codegen.compile_stmt(&statements[0]) {
+        eprintln!("Code generation error");
+            return;
+        }
+
+        let result = unsafe { codegen.run() };
+
+        match result {
+            Ok(value) => println!("{value}"),
+            Err(error) => eprintln!("JIT error"),
+        }
     }
 }

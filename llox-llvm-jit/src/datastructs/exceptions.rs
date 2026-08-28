@@ -20,7 +20,19 @@ pub struct ResolveError {
 }
 
 #[derive(Debug, Clone)]
+pub enum CodeGenError {
+    Unsupported {
+        token: Option<Token>,
+        message: String,
+    },
+    Llvm {
+        message: String,
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum RuntimeException {
+    Llvm { message: String },
     Error { token: Token, message: String },
     Return { value: Literal },
 }
