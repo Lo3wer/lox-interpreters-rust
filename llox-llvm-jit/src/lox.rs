@@ -137,10 +137,12 @@ impl Lox {
             return;
         }
 
-        if std::env::var_os("LLOX_DUMP_IR").is_some() {
+        #[cfg(feature = "debug_dump_ir")]
+        {
             codegen.dump_ir();
         }
-        if std::env::var_os("LLOX_DUMP_ASSEMBLY").is_some() {
+        #[cfg(feature = "debug_dump_assembly")]
+        {
             codegen.dump_assembly();
         }
 

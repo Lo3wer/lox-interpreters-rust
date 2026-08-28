@@ -5,6 +5,7 @@ use inkwell::values::FloatValue;
 use inkwell::OptimizationLevel;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use crate::datastructs::exceptions::CodeGenError;
+#[cfg(any(feature = "debug_dump_ir", feature = "debug_dump_assembly"))]
 use crate::debug::llvm;
 use crate::datastructs::expr::Expr;
 use crate::datastructs::stmt::Stmt;
@@ -117,10 +118,12 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
+    #[cfg(feature = "debug_dump_ir")]
     pub fn dump_ir(&self) {
         llvm::dump_ir(&self.module);
     }
 
+    #[cfg(feature = "debug_dump_assembly")]
     pub fn dump_assembly(&self) {
         llvm::dump_assembly(&self.module, &self.machine);
     }
