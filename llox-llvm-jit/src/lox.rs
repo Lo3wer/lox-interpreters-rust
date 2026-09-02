@@ -131,7 +131,7 @@ impl Lox {
             }
         };
 
-        if let Err(error) = codegen.compile_stmt(&statements[0]) {
+        if let Err(error) = codegen.compile_main(&statements) {
             eprintln!("Code generation error: {:?}", error);
             self.had_error = true;
             return;
@@ -147,7 +147,7 @@ impl Lox {
         }
 
         match unsafe { codegen.run() } {
-            Ok(value) => println!("{value}"),
+            Ok(_) => {}
             Err(error) => {
                 eprintln!("JIT error: {:?}", error);
                 self.had_error = true;

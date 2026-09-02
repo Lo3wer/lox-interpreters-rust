@@ -1,7 +1,7 @@
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::module::Module;
-use inkwell::values::FloatValue;
+use inkwell::module::{Linkage, Module};
+use inkwell::values::{FloatValue, FunctionValue};
 use inkwell::OptimizationLevel;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use crate::datastructs::exceptions::CodeGenError;
@@ -35,24 +35,46 @@ impl<'ctx> CodeGen<'ctx> {
         })
     }
 
-    pub fn compile_main(&self, expr: &Expr) -> Result<(), CodeGenError> {
-        let f64_type = self.context.f64_type();
-        let function_type = f64_type.fn_type(&[], false);
+    pub fn compile_main(&self, statements: &[Stmt]) -> Result<(), CodeGenError> {
+        let i32_type = self.context.i32_type();
+        let function_type = i32_type.fn_type(&[], false);
         let function = self.module.add_function("llox_main", function_type, None);
         let entry = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry);
-        let result = self.compile_expr(expr)?;
-        self.builder.build_return(Some(&result)).map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
+        for statement in statements {
+            self.compile_stmt(statement)?;
+        }
+        let zero = i32_type.const_int(0, false);
+        self.builder.build_return(Some(&zero)).map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
         Ok(())
     }
 
     pub fn compile_stmt(&self, statement: &Stmt) -> Result<(), CodeGenError> {
         match statement {
             Stmt::Print { expression } => {
-                self.compile_main(expression)
+                let value = self.compile_expr(expression)?;
+                self.build_print_number(value)
             }
-            _ => Err(CodeGenError::Llvm { message: "unsupported statement".to_string() }),
+            _ => Err(CodeGenError::Unsupported { token: None, message: "unsupported statement".to_string() }),
         }
+    }
+
+    fn declare_lox_print(&self) -> FunctionValue<'ctx> {
+        if let Some(function) = self.module.get_function("lox_print_number") {
+            return function;
+        }
+        let void_type = self.context.void_type();
+        let f64_type = self.context.f64_type();
+        let function_type = void_type.fn_type(&[f64_type.into()], false);
+        self.module.add_function("lox_print_number", function_type, Some(Linkage::External))
+    }
+
+    fn build_print_number(&self, value: FloatValue<'ctx>) -> Result<(), CodeGenError> {
+        let lox_print = self.declare_lox_print();
+        self.builder
+            .build_call(lox_print, &[value.into()], "")
+            .map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
+        Ok(())
     }
 
     fn compile_expr(&self, expr: &Expr) -> Result<FloatValue<'ctx>, CodeGenError> {
@@ -128,9 +150,13 @@ impl<'ctx> CodeGen<'ctx> {
         llvm::dump_assembly(&self.module, &self.machine);
     }
 
-    pub unsafe fn run(&self) -> Result<f64, CodeGenError> {
+    pub unsafe fn run(&self) -> Result<i32, CodeGenError> {
         let execution_engine = self.module.create_jit_execution_engine(OptimizationLevel::None).map_err(|error| CodeGenError::Llvm { message: error.to_string()})?;
-        let function = execution_engine.get_function::<unsafe extern "C" fn() -> f64>("llox_main").map_err(|error| CodeGenError::Llvm { message: error.to_string()})?;
-        Ok(function.call())
+        if let Some(lox_print) = self.module.get_function("lox_print_number") {
+            let lox_print_ptr: extern "C" fn(f64) = crate::runtime::lox_print_number;
+            execution_engine.add_global_mapping(&lox_print, lox_print_ptr as usize);
+        }
+        let function = unsafe { execution_engine.get_function::<unsafe extern "C" fn() -> i32>("llox_main") }.map_err(|error| CodeGenError::Llvm { message: error.to_string()})?;
+        Ok(unsafe { function.call() })
     }
 }
