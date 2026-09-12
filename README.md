@@ -1,6 +1,6 @@
 # Lox in Rust (Monorepo)
 
-A monorepo containing two independent Rust implementations of the Lox
+A monorepo containing three independent Rust implementations of the Lox
 programming language, a shared Lox test suite, and a language-agnostic test
 runner that executes the suite against any interpreter's CLI.
 
@@ -10,6 +10,7 @@ runner that executes the suite against any interpreter's CLI.
 |------------------------------------|----------------------------------------------------------|
 | `jlox-treewalk-interpreter/`       | jlox: AST tree-walk interpreter                          |
 | `clox-bytecode-vm/`                | clox: bytecode virtual machine (scaffolded, WIP)         |
+| `llox-llvm-jit/`                   | llox: LLVM JIT compiler (scaffolded, WIP)                |
 | `test/`                            | Shared Lox test suite (`.lox` files with `// expect:` annotations) |
 | `test-runner/`                     | Test runner that runs the shared suite against an interpreter CLI |
 | `documentation/`                   | Notes on the Lox grammar and the jlox pipeline           |
@@ -32,6 +33,27 @@ cargo build --manifest-path clox-bytecode-vm/Cargo.toml
 
 The clox crate is a bare `cargo init` skeleton — the VM is not implemented yet.
 
+### llox (LLVM JIT compiler)
+
+```sh
+cargo build --manifest-path llox-llvm-jit/Cargo.toml
+cargo run --manifest-path llox-llvm-jit/Cargo.toml -- path/to/script.lox
+```
+
+llox compiles Lox source to native code at runtime via LLVM (using the
+[`inkwell`](https://crates.io/crates/inkwell) bindings). Building it requires
+LLVM 22 installed and discoverable by `llvm-config` (the crate pins the
+`llvm22-1` feature). Only `print` statements over simple numeric expressions
+are code-generated so far; the lexer, parser, and resolver are reused from
+jlox, and the remaining statement/expression forms are not yet emitted.
+
+Two opt-in debug features dump the generated IR/assembly before running:
+
+```sh
+cargo run --manifest-path llox-llvm-jit/Cargo.toml --features debug_dump_ir -- path/to/script.lox
+cargo run --manifest-path llox-llvm-jit/Cargo.toml --features debug_dump_assembly -- path/to/script.lox
+```
+
 ## Testing
 
 ### Unit tests
@@ -41,6 +63,7 @@ own crate:
 
 ```sh
 cargo test --manifest-path jlox-treewalk-interpreter/Cargo.toml
+cargo test --manifest-path llox-llvm-jit/Cargo.toml
 ```
 
 ### Shared Lox test suite
@@ -97,5 +120,6 @@ GitHub Actions (`.github/workflows/rust.yml`) builds jlox, runs its unit
 tests, and runs the shared suite against the jlox binary. The lexer/parser
 chapter tests (`test/scanning`, `test/expressions`) and the clox limit tests
 (`test/limit`) are skipped via `--skip`, matching how the official
-craftinginterpreters suite treats a complete jlox. The clox steps are stubbed
+craftinginterpreters suite treats a complete jlox. The workflow also installs
+LLVM 22 and builds llox, running its unit tests. The clox steps are stubbed
 with instructions for when the VM is implemented.
