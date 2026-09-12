@@ -30,6 +30,21 @@ jobs:
         --skip test/expressions
         --skip test/limit
 
+    # - name: Install LLVM 22
+    #   uses: KyleMayes/install-llvm-action@v2
+    #   with:
+    #     version: "22.1"
+
+    # - name: Build llox LLVM JIT compiler
+    #   env:
+    #     LLVM_SYS_221_PREFIX: ${{ env.LLVM_PATH }}
+    #   run: cargo build --verbose --manifest-path llox-llvm-jit/Cargo.toml
+
+    # - name: Run llox unit tests
+    #   env:
+    #     LLVM_SYS_221_PREFIX: ${{ env.LLVM_PATH }}
+    #   run: cargo test --verbose --manifest-path llox-llvm-jit/Cargo.toml
+
     # When the clox bytecode VM has a CLI, add:
     #
     #   - name: Build clox bytecode VM
