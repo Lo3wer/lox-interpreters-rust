@@ -172,6 +172,16 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
+    fn build_check_type(
+        &self,
+        val: StructValue<'ctx>,
+        expected_tag: u8,
+        line: usize,
+        error_msg: &str
+    ) -> Result<(), CodeGenError> {
+        
+    }
+
     #[cfg(feature = "debug_dump_ir")]
     pub fn dump_ir(&self) {
         llvm::dump_ir(&self.module);

@@ -1,4 +1,5 @@
 use std::ffi::CStr;
+use std::ffi::c_char;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -28,6 +29,16 @@ pub extern "C" fn lox_print_value(v: LoxValue) {
         TAG_STRING => println!("{}", unsafe { CStr::from_ptr(v.bits as *const i8) }.to_string_lossy()),
         _ => {}
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lox_runtime_error(line: u32, msg: *const c_char) {
+    if msg.is_null() {
+        eprintln!("[Error]: Received a null pointer");
+        return;
+    }
+    let message = CStr::from_ptr(msg).to_string_lossy();
+    eprintln!("[line {line}] Error: {message}");
 }
 
 #[used]
