@@ -37,7 +37,7 @@ pub unsafe extern "C" fn lox_runtime_error(line: u32, msg: *const c_char) {
         eprintln!("[Error]: Received a null pointer");
         return;
     }
-    let message = CStr::from_ptr(msg).to_string_lossy();
+    let message = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
     eprintln!("[line {line}] Error: {message}");
 }
 

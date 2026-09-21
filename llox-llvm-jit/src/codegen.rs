@@ -5,6 +5,7 @@ use inkwell::types::StructType;
 use inkwell::values::{FloatValue, FunctionValue, IntValue, StructValue};
 use inkwell::OptimizationLevel;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::AddressSpace;
 use crate::datastructs::exceptions::CodeGenError;
 #[cfg(any(feature = "debug_dump_ir", feature = "debug_dump_assembly"))]
 use crate::debug::llvm;
@@ -78,6 +79,31 @@ impl<'ctx> CodeGen<'ctx> {
         let lox_print = self.declare_lox_print();
         self.builder
             .build_call(lox_print, &[value.into()], "")
+            .map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
+        Ok(())
+    }
+
+    fn declare_lox_runtime_error(&self) -> FunctionValue<'ctx> {
+        if let Some(function) = self.module.get_function("lox_runtime_error") {
+            return function;
+        }
+        let void_type = self.context.void_type();
+        let i32_type = self.context.i32_type();
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let function_type = void_type.fn_type(&[i32_type.into(), ptr_type.into()], false);
+        self.module.add_function("lox_runtime_error", function_type, Some(Linkage::External))
+    }
+
+    fn build_runtime_error(&self, line: usize, message: &str) -> Result<(), CodeGenError> {
+        let lox_runtime_error = self.declare_lox_runtime_error();
+        let line_val = self.context.i32_type().const_int(line as u64, false);
+        let msg_ptr = self.builder
+            .build_global_string_ptr(message, "err_msg")
+            .map_err(|error| CodeGenError::Llvm { message: error.to_string() })?
+            .as_pointer_value();
+
+        self.builder
+            .build_call(lox_runtime_error, &[line_val.into(), msg_ptr.into()], "")
             .map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
         Ok(())
     }
@@ -179,7 +205,9 @@ impl<'ctx> CodeGen<'ctx> {
         line: usize,
         error_msg: &str
     ) -> Result<(), CodeGenError> {
-        
+        if val[0] != expected_tag {
+            
+        }
     }
 
     #[cfg(feature = "debug_dump_ir")]
