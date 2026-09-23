@@ -260,28 +260,10 @@ impl<'ctx> CodeGen<'ctx> {
 
         self.builder.position_at_end(error_block);
 
-        let runtime_error = self.declare_lox_runtime_error();
-
-        let line_value = self.context.i32_type().const_int(line as u64, false);
-        let message_value = self
-            .builder
-            .build_global_string_ptr(error_msg, "runtime_error_message")
-            .map_err(|e| CodeGenError::Llvm {
-                message: e.to_string(),
-            })?;
+        self.build_runtime_error(line, error_msg)?;
 
         self.builder
-            .build_call(
-                runtime_error,
-                &[line_value.into(), message_value.as_pointer_value().into()],
-                "",
-            )
-            .map_err(|e| CodeGenError::Llvm {
-                message: e.to_string(),
-            })?;
-
-        self.builder
-            .build_unreachable()
+            .build_return(Some(&self.context.i32_type().const_int(70, false)))
             .map_err(|e| CodeGenError::Llvm {
                 message: e.to_string(),
             })?;

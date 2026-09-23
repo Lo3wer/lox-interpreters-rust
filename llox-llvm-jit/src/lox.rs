@@ -11,12 +11,13 @@ use std::process;
 
 pub struct Lox {
     had_error: bool,
+    had_runtime_error: bool,
     prompt: bool,
 }
 
 impl Lox {
     pub fn new() -> Self {
-        Lox { had_error: false, prompt: false }
+        Lox { had_error: false, had_runtime_error: false, prompt: false }
     }
 
     fn report(&mut self, line: usize, where_: &str, message: &str) {
@@ -53,6 +54,9 @@ impl Lox {
         if self.had_error {
             process::exit(65);
         }
+        if self.had_runtime_error {
+            process::exit(70);
+        }
         Ok(())
     }
 
@@ -69,6 +73,7 @@ impl Lox {
                 break;
             }
             self.run(line.trim_end());
+            self.had_runtime_error = false;
             self.had_error = false;
         }
         Ok(())
@@ -147,7 +152,14 @@ impl Lox {
         }
 
         match unsafe { codegen.run() } {
-            Ok(_) => {}
+            Ok(0) => {}
+            Ok(70) => {
+                self.had_runtime_error = true;
+            }
+            Ok(default) => {
+                eprintln!("JIT exited with unexpected status {default}");
+                self.had_error = true;
+            }
             Err(error) => {
                 eprintln!("JIT error: {:?}", error);
                 self.had_error = true;
