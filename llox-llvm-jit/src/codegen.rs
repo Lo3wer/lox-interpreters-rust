@@ -1,25 +1,25 @@
 use std::ffi::c_char;
+
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::StructType;
 use inkwell::values::{FloatValue, FunctionValue, IntValue, StructValue};
-use inkwell::OptimizationLevel;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::AddressSpace;
 use inkwell::IntPredicate;
+use inkwell::OptimizationLevel;
+
 use crate::datastructs::exceptions::CodeGenError;
 #[cfg(any(feature = "debug_dump_ir", feature = "debug_dump_assembly"))]
 use crate::debug::llvm;
 use crate::datastructs::expr::Expr;
-use crate::datastructs::stmt::Stmt;
 use crate::datastructs::literal::Literal;
+use crate::datastructs::stmt::Stmt;
 use crate::datastructs::token::TokenType;
-
-const TAG_NUMBER: u64 = 0;
-const TAG_BOOL: u64 = 1;
-const TAG_NIL: u64 = 2;
-const TAG_STRING: u64 = 3;
+use crate::runtime::{
+    lox_print_value, lox_runtime_error, LoxValue, TAG_BOOL, TAG_NIL, TAG_NUMBER, TAG_STRING,
+};
 
 pub struct CodeGen<'ctx> {
     pub context: &'ctx Context,
@@ -117,9 +117,9 @@ impl<'ctx> CodeGen<'ctx> {
         )
     }
 
-    fn make_lox_value(&self, tag: u64, bits: IntValue<'ctx>) -> StructValue<'ctx> {
+    fn make_lox_value(&self, tag: u8, bits: IntValue<'ctx>) -> StructValue<'ctx> {
         let ty = self.lox_value_type();
-        let tag_value = self.context.i8_type().const_int(tag, false);
+        let tag_value = self.context.i8_type().const_int(tag as u64, false);
         let mut value = ty.get_undef();
         value = self.builder.build_insert_value(value, tag_value, 0, "tag").unwrap().into_struct_value();
         value = self.builder.build_insert_value(value, bits, 1, "bits").unwrap().into_struct_value();
@@ -162,9 +162,16 @@ impl<'ctx> CodeGen<'ctx> {
                 let value = self.compile_expr(right)?;
 
                 match operator.token_type() {
+                    TokenType::Bang => {
+                        let is_truthy = self.build_is_truthy(value)?;
+                        let not = self.builder.build_not(is_truthy, "not").map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
+                        let bits = self.builder.build_int_z_extend(not, self.context.i64_type(), "boolbits").unwrap();
+                        Ok(self.make_lox_value(TAG_BOOL, bits))
+                    }
                     TokenType::Minus => {
+                        self.build_check_type(value, TAG_NUMBER, operator.line(), "Operand must be a number.")?;
                         let num = self.as_f64(value);
-                        let neg = self.builder.build_float_neg(num, "negtmp").map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
+                        let neg = self.builder.build_float_neg(num, "neg").map_err(|error| CodeGenError::Llvm { message: error.to_string() })?;
                         let bits = self.builder.build_bit_cast(neg, self.context.i64_type(), "numbits").unwrap().into_int_value();
                         Ok(self.make_lox_value(TAG_NUMBER, bits))
                     }
@@ -236,7 +243,7 @@ impl<'ctx> CodeGen<'ctx> {
         let matches = self
             .builder
             .build_int_compare(
-                inkwell::IntPredicate::EQ,
+                IntPredicate::EQ,
                 tag,
                 expected,
                 "tag_matches",
@@ -283,6 +290,67 @@ impl<'ctx> CodeGen<'ctx> {
         Ok(())
     }
 
+    fn build_is_truthy(&self, val: StructValue<'ctx>) -> Result<IntValue<'ctx>, CodeGenError> {
+        let tag = self
+            .builder
+            .build_extract_value(val, 0, "tag")
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?
+            .into_int_value();
+
+        let bits = self
+            .builder
+            .build_extract_value(val, 1, "bits")
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?
+            .into_int_value();
+
+        let is_nil = self.builder.build_int_compare(
+            IntPredicate::EQ,
+            tag,
+            self.context.i8_type().const_int(TAG_NIL as u64, false),
+            "is_nil",
+        ).map_err(|e| CodeGenError::Llvm {
+            message: e.to_string(),
+        })?;
+
+        let is_false = self.builder.build_int_compare(
+            IntPredicate::EQ,
+            tag,
+            self.context.i8_type().const_int(TAG_BOOL as u64, false),
+            "is_bool",
+        ).map_err(|e| CodeGenError::Llvm {
+            message: e.to_string(),
+        })?;
+
+        let is_false_val = self.builder.build_and(
+            is_false,
+            self.builder.build_int_compare(
+                IntPredicate::EQ,
+                bits,
+                self.context.i64_type().const_int(0, false),
+                "is_false_val",
+            ).map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?,
+            "is_false_and_val",
+        ).map_err(|e| CodeGenError::Llvm {
+            message: e.to_string(),
+        })?;
+
+        let is_falsy = self.builder.build_or(is_nil, is_false_val, "is_falsy").map_err(|e| CodeGenError::Llvm {
+            message: e.to_string(),
+        })?;
+
+        let is_truthy = self.builder.build_not(is_falsy, "is_truthy").map_err(|e| CodeGenError::Llvm {
+            message: e.to_string(),
+        })?;
+
+        Ok(is_truthy)
+    }
+
     #[cfg(feature = "debug_dump_ir")]
     pub fn dump_ir(&self) {
         llvm::dump_ir(&self.module);
@@ -296,11 +364,11 @@ impl<'ctx> CodeGen<'ctx> {
     pub unsafe fn run(&self) -> Result<i32, CodeGenError> {
         let execution_engine = self.module.create_jit_execution_engine(OptimizationLevel::None).map_err(|error| CodeGenError::Llvm { message: error.to_string()})?;
         if let Some(lox_print) = self.module.get_function("lox_print_value") {
-            let lox_print_ptr: extern "C" fn(crate::runtime::LoxValue) = crate::runtime::lox_print_value;
+            let lox_print_ptr: extern "C" fn(LoxValue) = lox_print_value;
             execution_engine.add_global_mapping(&lox_print, lox_print_ptr as usize);
         }
         if let Some(runtime_error) = self.module.get_function("lox_runtime_error") {
-            let runtime_error_ptr: unsafe extern "C" fn(u32, *const c_char) -> () = crate::runtime::lox_runtime_error;
+            let runtime_error_ptr: unsafe extern "C" fn(u32, *const c_char) -> () = lox_runtime_error;
             execution_engine.add_global_mapping(
                 &runtime_error,
                 runtime_error_ptr as usize,
