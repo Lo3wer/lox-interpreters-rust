@@ -1,5 +1,6 @@
 use std::ffi::CStr;
 use std::ffi::c_char;
+use std::process;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -39,6 +40,7 @@ pub unsafe extern "C" fn lox_runtime_error(line: u32, msg: *const c_char) {
     }
     let message = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
     eprintln!("[line {line}] Error: {message}");
+    process::exit(70);
 }
 
 #[used]

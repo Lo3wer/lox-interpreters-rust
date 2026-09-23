@@ -1,3 +1,4 @@
+use std::ffi::c_char;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
@@ -6,6 +7,7 @@ use inkwell::values::{FloatValue, FunctionValue, IntValue, StructValue};
 use inkwell::OptimizationLevel;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::AddressSpace;
+use inkwell::IntPredicate;
 use crate::datastructs::exceptions::CodeGenError;
 #[cfg(any(feature = "debug_dump_ir", feature = "debug_dump_assembly"))]
 use crate::debug::llvm;
@@ -203,11 +205,82 @@ impl<'ctx> CodeGen<'ctx> {
         val: StructValue<'ctx>,
         expected_tag: u8,
         line: usize,
-        error_msg: &str
+        error_msg: &str,
     ) -> Result<(), CodeGenError> {
-        if val[0] != expected_tag {
-            
-        }
+        let current_block = self
+            .builder
+            .get_insert_block()
+            .ok_or_else(|| CodeGenError::Llvm {
+                message: "no current LLVM insertion block".into(),
+            })?;
+
+        let function = current_block
+            .get_parent()
+            .ok_or_else(|| CodeGenError::Llvm {
+                message: "current block has no parent function".into(),
+            })?;
+
+        let error_block = self.context.append_basic_block(function, "type_error");
+        let continue_block = self.context.append_basic_block(function, "type_check_continue");
+
+        let tag = self
+            .builder
+            .build_extract_value(val, 0, "tag")
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?
+            .into_int_value();
+
+        let expected = self.context.i8_type().const_int(expected_tag as u64, false);
+
+        let matches = self
+            .builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                tag,
+                expected,
+                "tag_matches",
+            )
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?;
+
+        self.builder
+            .build_conditional_branch(matches, continue_block, error_block)
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?;
+
+        self.builder.position_at_end(error_block);
+
+        let runtime_error = self.declare_lox_runtime_error();
+
+        let line_value = self.context.i32_type().const_int(line as u64, false);
+        let message_value = self
+            .builder
+            .build_global_string_ptr(error_msg, "runtime_error_message")
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?;
+
+        self.builder
+            .build_call(
+                runtime_error,
+                &[line_value.into(), message_value.as_pointer_value().into()],
+                "",
+            )
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?;
+
+        self.builder
+            .build_unreachable()
+            .map_err(|e| CodeGenError::Llvm {
+                message: e.to_string(),
+            })?;
+
+        self.builder.position_at_end(continue_block);
+        Ok(())
     }
 
     #[cfg(feature = "debug_dump_ir")]
@@ -225,6 +298,13 @@ impl<'ctx> CodeGen<'ctx> {
         if let Some(lox_print) = self.module.get_function("lox_print_value") {
             let lox_print_ptr: extern "C" fn(crate::runtime::LoxValue) = crate::runtime::lox_print_value;
             execution_engine.add_global_mapping(&lox_print, lox_print_ptr as usize);
+        }
+        if let Some(runtime_error) = self.module.get_function("lox_runtime_error") {
+            let runtime_error_ptr: unsafe extern "C" fn(u32, *const c_char) -> () = crate::runtime::lox_runtime_error;
+            execution_engine.add_global_mapping(
+                &runtime_error,
+                runtime_error_ptr as usize,
+            );
         }
         let function = unsafe { execution_engine.get_function::<unsafe extern "C" fn() -> i32>("llox_main") }.map_err(|error| CodeGenError::Llvm { message: error.to_string()})?;
         Ok(unsafe { function.call() })
