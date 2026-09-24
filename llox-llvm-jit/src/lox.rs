@@ -1,9 +1,9 @@
+use crate::codegen::CodeGen;
+use crate::datastructs::exceptions::{LexError, ParseError, ResolveError};
+use crate::datastructs::token::TokenType;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::resolver::Resolver;
-use crate::codegen::CodeGen;
-use crate::datastructs::token::TokenType;
-use crate::datastructs::exceptions::{LexError, ParseError, ResolveError};
 use inkwell::context::Context;
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -17,7 +17,11 @@ pub struct Lox {
 
 impl Lox {
     pub fn new() -> Self {
-        Lox { had_error: false, had_runtime_error: false, prompt: false }
+        Lox {
+            had_error: false,
+            had_runtime_error: false,
+            prompt: false,
+        }
     }
 
     fn report(&mut self, line: usize, where_: &str, message: &str) {
@@ -110,7 +114,7 @@ impl Lox {
         // resolution
         let mut resolver = Resolver::new();
         match resolver.resolve(&statements) {
-            Ok(()) => {},
+            Ok(()) => {}
             Err(errors) => {
                 for error in &errors {
                     self.report_resolve_error(error);

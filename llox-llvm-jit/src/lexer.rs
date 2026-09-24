@@ -1,6 +1,6 @@
-use crate::datastructs::token::{Token, TokenType};
-use crate::datastructs::literal::Literal;
 use crate::datastructs::exceptions::LexError;
+use crate::datastructs::literal::Literal;
+use crate::datastructs::token::{Token, TokenType};
 
 pub struct Lexer {
     source: Vec<char>,
@@ -29,8 +29,12 @@ impl Lexer {
             self.scan_token();
         }
 
-        self.tokens.push(Token::new(TokenType::Eof, "".to_string(), None, self.line));
-        (std::mem::take(&mut self.tokens), std::mem::take(&mut self.errors))
+        self.tokens
+            .push(Token::new(TokenType::Eof, "".to_string(), None, self.line));
+        (
+            std::mem::take(&mut self.tokens),
+            std::mem::take(&mut self.errors),
+        )
     }
 
     // Scanning routines
@@ -102,9 +106,7 @@ impl Lexer {
                     self.add_token(TokenType::Slash, None);
                 }
             }
-            ' ' | 
-            '\r' | 
-            '\t' => { /* Ignore whitespace */ }
+            ' ' | '\r' | '\t' => { /* Ignore whitespace */ }
             '\n' => self.line += 1,
             '"' => self.string(),
             c if Self::is_digit(c) => self.number(),
@@ -132,7 +134,9 @@ impl Lexer {
         self.advance();
 
         // Trim the surrounding quotes.
-        let value: String = self.source[self.start + 1..self.current - 1].iter().collect();
+        let value: String = self.source[self.start + 1..self.current - 1]
+            .iter()
+            .collect();
         self.add_token(TokenType::String, Some(Literal::String(value)));
     }
 
@@ -172,7 +176,8 @@ impl Lexer {
 
     fn add_token(&mut self, token_type: TokenType, literal: Option<Literal>) {
         let text: String = self.source[self.start..self.current].iter().collect();
-        self.tokens.push(Token::new(token_type, text, literal, self.line));
+        self.tokens
+            .push(Token::new(token_type, text, literal, self.line));
     }
 
     fn match_char(&mut self, expected: char) -> bool {
@@ -266,10 +271,25 @@ mod tests {
         lexer.scan_tokens().1
     }
 
-    fn assert_token(token: &Token, expected_type: TokenType, expected_lexeme: &str, expected_line: usize) {
-        assert_eq!(token.token_type(), expected_type, "type mismatch for '{}'", expected_lexeme);
+    fn assert_token(
+        token: &Token,
+        expected_type: TokenType,
+        expected_lexeme: &str,
+        expected_line: usize,
+    ) {
+        assert_eq!(
+            token.token_type(),
+            expected_type,
+            "type mismatch for '{}'",
+            expected_lexeme
+        );
         assert_eq!(token.lexeme(), expected_lexeme, "lexeme mismatch");
-        assert_eq!(token.line(), expected_line, "line mismatch for '{}'", expected_lexeme);
+        assert_eq!(
+            token.line(),
+            expected_line,
+            "line mismatch for '{}'",
+            expected_lexeme
+        );
     }
 
     // --- Single-character tokens ---

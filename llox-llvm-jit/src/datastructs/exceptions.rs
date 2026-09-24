@@ -1,5 +1,5 @@
-use super::token::Token;
 use super::literal::Literal;
+use super::token::Token;
 
 #[derive(Debug, Clone)]
 pub struct LexError {
@@ -27,7 +27,7 @@ pub enum CodeGenError {
     },
     Llvm {
         message: String,
-    }
+    },
 }
 
 #[derive(Debug, Clone)]

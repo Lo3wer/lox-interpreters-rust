@@ -1,8 +1,8 @@
 use crate::datastructs::exceptions::ResolveError;
-use crate::datastructs::token::Token;
-use crate::datastructs::stmt::Stmt;
 use crate::datastructs::expr::Expr;
 use crate::datastructs::resolver_values::{ClassType, FunctionType};
+use crate::datastructs::stmt::Stmt;
+use crate::datastructs::token::Token;
 use std::collections::HashMap;
 
 pub struct Resolver {
@@ -70,7 +70,11 @@ impl Resolver {
             Stmt::Expression { expression } => {
                 self.resolve_expr(expression);
             }
-            Stmt::If { condition, then_branch, else_branch } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 self.resolve_expr(condition);
                 self.resolve_stmt(then_branch);
                 if let Some(else_stmt) = else_branch {
@@ -95,14 +99,22 @@ impl Resolver {
                 self.resolve_expr(condition);
                 self.resolve_stmt(body);
             }
-            Stmt::Class { name, superclass, methods } => {
+            Stmt::Class {
+                name,
+                superclass,
+                methods,
+            } => {
                 let enclosing_class = self.current_class.take();
                 self.current_class = Some(ClassType::Class);
                 self.declare(name);
                 self.define(name);
 
                 if let Some(superclass_expr) = superclass {
-                    if let Expr::Variable { name: superclass_name, .. } = superclass_expr.as_ref() {
+                    if let Expr::Variable {
+                        name: superclass_name,
+                        ..
+                    } = superclass_expr.as_ref()
+                    {
                         if name.lexeme() == superclass_name.lexeme() {
                             self.error(superclass_name, "A class can't inherit from itself.");
                         }
@@ -110,14 +122,25 @@ impl Resolver {
                     self.current_class = Some(ClassType::Subclass);
                     self.resolve_expr(superclass_expr);
                     self.begin_scope();
-                    self.scopes.last_mut().unwrap().insert("super".to_string(), true);
+                    self.scopes
+                        .last_mut()
+                        .unwrap()
+                        .insert("super".to_string(), true);
                 }
 
                 self.begin_scope();
-                self.scopes.last_mut().unwrap().insert("this".to_string(), true);
+                self.scopes
+                    .last_mut()
+                    .unwrap()
+                    .insert("this".to_string(), true);
 
                 for method in methods {
-                    if let Stmt::Function { name: method_name, params, body } = method {
+                    if let Stmt::Function {
+                        name: method_name,
+                        params,
+                        body,
+                    } = method
+                    {
                         let function_type = if method_name.lexeme() == "init" {
                             FunctionType::Initializer
                         } else {
@@ -163,32 +186,56 @@ impl Resolver {
                 }
                 self.resolve_local(expression, name);
             }
-            Expr::Binary { left, operator: _, right, .. } => {
+            Expr::Binary {
+                left,
+                operator: _,
+                right,
+                ..
+            } => {
                 self.resolve_expr(left);
                 self.resolve_expr(right);
             }
-            Expr::Call { callee, paren: _, arguments, .. } => {
+            Expr::Call {
+                callee,
+                paren: _,
+                arguments,
+                ..
+            } => {
                 self.resolve_expr(callee);
                 for argument in arguments {
                     self.resolve_expr(argument);
                 }
             }
-            Expr::Get { object, name: _, .. } => {
+            Expr::Get {
+                object, name: _, ..
+            } => {
                 self.resolve_expr(object);
             }
             Expr::Grouping { expression, .. } => {
                 self.resolve_expr(expression);
             }
             Expr::Literal { value: _, .. } => {}
-            Expr::Logical { left, operator: _, right, .. } => {
+            Expr::Logical {
+                left,
+                operator: _,
+                right,
+                ..
+            } => {
                 self.resolve_expr(left);
                 self.resolve_expr(right);
             }
-            Expr::Set { object, name: _, value, .. } => {
+            Expr::Set {
+                object,
+                name: _,
+                value,
+                ..
+            } => {
                 self.resolve_expr(object);
                 self.resolve_expr(value);
             }
-            Expr::Super { keyword, method: _, .. } => {
+            Expr::Super {
+                keyword, method: _, ..
+            } => {
                 if self.current_class.is_none() {
                     self.error(keyword, "Can't use 'super' outside of a class.");
                 } else if self.current_class != Some(ClassType::Subclass) {
@@ -202,10 +249,17 @@ impl Resolver {
                 }
                 self.resolve_local(expression, keyword);
             }
-            Expr::Unary { operator: _, right, .. } => {
+            Expr::Unary {
+                operator: _, right, ..
+            } => {
                 self.resolve_expr(right);
             }
-            Expr::Ternary { condition, then_branch, else_branch, .. } => {
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 self.resolve_expr(condition);
                 self.resolve_expr(then_branch);
                 self.resolve_expr(else_branch);

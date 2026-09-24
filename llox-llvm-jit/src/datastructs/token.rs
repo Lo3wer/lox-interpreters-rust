@@ -5,21 +5,52 @@ use std::hash::{Hash, Hasher};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenType {
     // Single-character tokens.
-    LeftParen, RightParen, LeftBrace, RightBrace,
-    Comma, Dot, Minus, Plus, Semicolon, Slash, Star, Question, Colon,
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Dot,
+    Minus,
+    Plus,
+    Semicolon,
+    Slash,
+    Star,
+    Question,
+    Colon,
 
     // One or two character tokens.
-    Bang, BangEqual,
-    Equal, EqualEqual,
-    Greater, GreaterEqual,
-    Less, LessEqual,
+    Bang,
+    BangEqual,
+    Equal,
+    EqualEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
 
     // Literals.
-    Identifier, String, Number,
+    Identifier,
+    String,
+    Number,
 
     // Keywords.
-    And, Class, Else, False, Fun, For, If, Nil, Or,
-    Print, Return, Super, This, True, Var, While,
+    And,
+    Class,
+    Else,
+    False,
+    Fun,
+    For,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
 
     Eof,
 }
@@ -34,7 +65,9 @@ pub struct Token {
 
 impl PartialEq for Token {
     fn eq(&self, other: &Self) -> bool {
-        self.token_type == other.token_type && self.lexeme == other.lexeme && self.line == other.line
+        self.token_type == other.token_type
+            && self.lexeme == other.lexeme
+            && self.line == other.line
     }
 }
 
@@ -49,7 +82,12 @@ impl Hash for Token {
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, lexeme: String, literal: Option<Literal>, line: usize) -> Self {
+    pub fn new(
+        token_type: TokenType,
+        lexeme: String,
+        literal: Option<Literal>,
+        line: usize,
+    ) -> Self {
         Token {
             token_type,
             lexeme,
@@ -94,7 +132,12 @@ mod tests {
 
     #[test]
     fn test_new_token() {
-        let t = Token::new(TokenType::Number, "42".into(), Some(Literal::Number(42.0)), 1);
+        let t = Token::new(
+            TokenType::Number,
+            "42".into(),
+            Some(Literal::Number(42.0)),
+            1,
+        );
         assert_eq!(t.token_type(), TokenType::Number);
         assert_eq!(t.lexeme(), "42");
         assert_eq!(t.line(), 1);

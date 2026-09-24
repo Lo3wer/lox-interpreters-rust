@@ -1,8 +1,8 @@
-use crate::datastructs::token::{Token, TokenType};
-use crate::datastructs::literal::Literal;
-use crate::datastructs::expr::Expr;
-use crate::datastructs::stmt::Stmt;
 use crate::datastructs::exceptions::ParseError;
+use crate::datastructs::expr::Expr;
+use crate::datastructs::literal::Literal;
+use crate::datastructs::stmt::Stmt;
+use crate::datastructs::token::{Token, TokenType};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -13,7 +13,12 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, errors: Vec::new(), current: 0, expr_id_counter: 0 }
+        Parser {
+            tokens,
+            errors: Vec::new(),
+            current: 0,
+            expr_id_counter: 0,
+        }
     }
 
     fn next_expr_id(&mut self) -> usize {
@@ -24,14 +29,16 @@ impl Parser {
 
     pub fn parse_prompt_line(&mut self) -> Result<Vec<Stmt>, Vec<ParseError>> {
         let checkpoint = self.current;
-        
+
         if let Ok(expr) = self.expression() {
             // must consume everything up to EOF to count as "just an expression".
             if self.check(&TokenType::Semicolon) {
                 self.advance();
             }
             if self.is_at_end() {
-                return Ok(vec![Stmt::Print{ expression: Box::new(expr) }]);
+                return Ok(vec![Stmt::Print {
+                    expression: Box::new(expr),
+                }]);
             }
         }
         // backtrack and parse normally.
@@ -52,7 +59,11 @@ impl Parser {
             }
         }
 
-        if self.errors.is_empty() { Ok(statements) } else { Err(self.errors.clone()) }
+        if self.errors.is_empty() {
+            Ok(statements)
+        } else {
+            Err(self.errors.clone())
+        }
     }
 
     // refer to grammar.md for grammar rules
@@ -69,11 +80,18 @@ impl Parser {
     }
 
     fn class_declaration(&mut self) -> Result<Stmt, ParseError> {
-        let name = self.consume(TokenType::Identifier, "Expect class name.")?.clone();
+        let name = self
+            .consume(TokenType::Identifier, "Expect class name.")?
+            .clone();
 
         let superclass = if self.match_token(&[TokenType::Less]) {
-            let superclass_name = self.consume(TokenType::Identifier, "Expect superclass name.")?.clone();
-            Some(Box::new(Expr::Variable { name: superclass_name, id: self.next_expr_id() }))
+            let superclass_name = self
+                .consume(TokenType::Identifier, "Expect superclass name.")?
+                .clone();
+            Some(Box::new(Expr::Variable {
+                name: superclass_name,
+                id: self.next_expr_id(),
+            }))
         } else {
             None
         };
@@ -85,11 +103,17 @@ impl Parser {
         }
 
         self.consume(TokenType::RightBrace, "Expect '}' after class body.")?;
-        Ok(Stmt::Class { name, superclass, methods })
+        Ok(Stmt::Class {
+            name,
+            superclass,
+            methods,
+        })
     }
 
     fn function_declaration(&mut self, kind: String) -> Result<Stmt, ParseError> {
-        let name = self.consume(TokenType::Identifier, &format!("Expect {} name.", kind))?.clone();
+        let name = self
+            .consume(TokenType::Identifier, &format!("Expect {} name.", kind))?
+            .clone();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.")?;
 
         let mut params = Vec::new();
@@ -98,7 +122,10 @@ impl Parser {
                 if params.len() >= 255 {
                     return Err(self.error(self.peek(), "Can't have more than 255 parameters."));
                 }
-                params.push(self.consume(TokenType::Identifier, "Expect parameter name.")?.clone());
+                params.push(
+                    self.consume(TokenType::Identifier, "Expect parameter name.")?
+                        .clone(),
+                );
                 if !self.match_token(&[TokenType::Comma]) {
                     break;
                 }
@@ -106,23 +133,37 @@ impl Parser {
         }
 
         self.consume(TokenType::RightParen, "Expect ')' after parameters.")?;
-        self.consume(TokenType::LeftBrace, &format!("Expect '{{' before {} body.", kind))?;
+        self.consume(
+            TokenType::LeftBrace,
+            &format!("Expect '{{' before {} body.", kind),
+        )?;
         let body = self.block()?;
 
         Ok(Stmt::Function { name, params, body })
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, ParseError> {
-        let name = self.consume(TokenType::Identifier, "Expect variable name.")?.clone();
+        let name = self
+            .consume(TokenType::Identifier, "Expect variable name.")?
+            .clone();
 
-        let mut initializer = Expr::Literal { value: Literal::Nil, id: self.next_expr_id() };
+        let mut initializer = Expr::Literal {
+            value: Literal::Nil,
+            id: self.next_expr_id(),
+        };
         if self.match_token(&[TokenType::Equal]) {
             initializer = self.expression()?;
         }
 
-        self.consume(TokenType::Semicolon, "Expect ';' after variable declaration.")?;
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        )?;
 
-        Ok(Stmt::Var { name, initializer: Box::new(initializer) })
+        Ok(Stmt::Var {
+            name,
+            initializer: Box::new(initializer),
+        })
     }
 
     fn statement(&mut self) -> Result<Stmt, ParseError> {
@@ -187,12 +228,17 @@ impl Parser {
             body = Box::new(Stmt::Block {
                 statements: vec![
                     *body,
-                    Stmt::Expression { expression: Box::new(inc) },
+                    Stmt::Expression {
+                        expression: Box::new(inc),
+                    },
                 ],
             });
         }
 
-        let condition = condition.unwrap_or(Expr::Literal { value: Literal::Bool(true), id: self.next_expr_id() });
+        let condition = condition.unwrap_or(Expr::Literal {
+            value: Literal::Bool(true),
+            id: self.next_expr_id(),
+        });
 
         body = Box::new(Stmt::While {
             condition: Box::new(condition),
@@ -201,10 +247,7 @@ impl Parser {
 
         if let Some(init) = initializer {
             body = Box::new(Stmt::Block {
-                statements: vec![
-                    init,
-                    *body,
-                ],
+                statements: vec![init, *body],
             });
         }
 
@@ -222,7 +265,11 @@ impl Parser {
         } else {
             None
         };
-        Ok(Stmt::If { condition: Box::new(condition), then_branch, else_branch })
+        Ok(Stmt::If {
+            condition: Box::new(condition),
+            then_branch,
+            else_branch,
+        })
     }
 
     fn while_statement(&mut self) -> Result<Stmt, ParseError> {
@@ -231,7 +278,10 @@ impl Parser {
         self.consume(TokenType::RightParen, "Expect ')' after while condition.")?;
 
         let body = Box::new(self.statement()?);
-        Ok(Stmt::While { condition: Box::new(condition), body })
+        Ok(Stmt::While {
+            condition: Box::new(condition),
+            body,
+        })
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, ParseError> {
@@ -356,7 +406,10 @@ impl Parser {
 
         if self.match_token(&[TokenType::Question]) {
             let then_branch = self.expression()?;
-            self.consume(TokenType::Colon, "Expect ':' after then branch of ternary expression.")?;
+            self.consume(
+                TokenType::Colon,
+                "Expect ':' after then branch of ternary expression.",
+            )?;
             let else_branch = self.ternary()?;
             expr = Expr::Ternary {
                 condition: Box::new(expr),
@@ -465,7 +518,9 @@ impl Parser {
             if self.match_token(&[TokenType::LeftParen]) {
                 expr = self.finish_call(expr)?;
             } else if self.match_token(&[TokenType::Dot]) {
-                let name = self.consume(TokenType::Identifier, "Expect property name after '.'.")?.clone();
+                let name = self
+                    .consume(TokenType::Identifier, "Expect property name after '.'.")?
+                    .clone();
                 expr = Expr::Get {
                     object: Box::new(expr),
                     name,
@@ -495,7 +550,9 @@ impl Parser {
             }
         }
 
-        let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.")?.clone();
+        let paren = self
+            .consume(TokenType::RightParen, "Expect ')' after arguments.")?
+            .clone();
         Ok(Expr::Call {
             callee: Box::new(callee),
             paren,
@@ -506,36 +563,65 @@ impl Parser {
 
     fn primary(&mut self) -> Result<Expr, ParseError> {
         if self.match_token(&[TokenType::False]) {
-            return Ok(Expr::Literal { value: Literal::Bool(false), id: self.next_expr_id() });
+            return Ok(Expr::Literal {
+                value: Literal::Bool(false),
+                id: self.next_expr_id(),
+            });
         }
         if self.match_token(&[TokenType::True]) {
-            return Ok(Expr::Literal { value: Literal::Bool(true), id: self.next_expr_id() });
+            return Ok(Expr::Literal {
+                value: Literal::Bool(true),
+                id: self.next_expr_id(),
+            });
         }
         if self.match_token(&[TokenType::Nil]) {
-            return Ok(Expr::Literal { value: Literal::Nil, id: self.next_expr_id() });
+            return Ok(Expr::Literal {
+                value: Literal::Nil,
+                id: self.next_expr_id(),
+            });
         }
         if self.match_token(&[TokenType::Number, TokenType::String]) {
-            let literal = self.previous().literal()
+            let literal = self
+                .previous()
+                .literal()
                 .cloned()
                 .ok_or_else(|| self.error(self.previous(), "Expected a literal value."))?;
-            return Ok(Expr::Literal { value: literal, id: self.next_expr_id() });
+            return Ok(Expr::Literal {
+                value: literal,
+                id: self.next_expr_id(),
+            });
         }
         if self.match_token(&[TokenType::This]) {
-            return Ok(Expr::This { keyword: self.previous().clone(), id: self.next_expr_id() });
+            return Ok(Expr::This {
+                keyword: self.previous().clone(),
+                id: self.next_expr_id(),
+            });
         }
         if self.match_token(&[TokenType::Identifier]) {
-            return Ok(Expr::Variable { name: self.previous().clone(), id: self.next_expr_id() });
+            return Ok(Expr::Variable {
+                name: self.previous().clone(),
+                id: self.next_expr_id(),
+            });
         }
         if self.match_token(&[TokenType::LeftParen]) {
             let expr = self.expression()?;
             self.consume(TokenType::RightParen, "Expect ')' after expression.")?;
-            return Ok(Expr::Grouping { expression: Box::new(expr), id: self.next_expr_id() });
+            return Ok(Expr::Grouping {
+                expression: Box::new(expr),
+                id: self.next_expr_id(),
+            });
         }
         if self.match_token(&[TokenType::Super]) {
             let keyword = self.previous().clone();
             self.consume(TokenType::Dot, "Expect '.' after 'super'.")?;
-            let method = self.consume(TokenType::Identifier, "Expect superclass method name.")?.clone();
-            return Ok(Expr::Super { keyword, method, id: self.next_expr_id() });
+            let method = self
+                .consume(TokenType::Identifier, "Expect superclass method name.")?
+                .clone();
+            return Ok(Expr::Super {
+                keyword,
+                method,
+                id: self.next_expr_id(),
+            });
         }
 
         // error productions
@@ -661,21 +747,28 @@ mod tests {
 
     fn assert_literal(expr: &Expr) {
         match expr {
-            Expr::Literal { .. } => {},
+            Expr::Literal { .. } => {}
             _other => panic!("expected Literal expr, got variant"),
         }
     }
 
     fn assert_binary(expr: &Expr) -> (&Token, &Expr, &Expr) {
         match expr {
-            Expr::Binary { operator, left, right, .. } => (operator, left, right),
+            Expr::Binary {
+                operator,
+                left,
+                right,
+                ..
+            } => (operator, left, right),
             other => panic!("expected Binary expr, got {:?}", other),
         }
     }
 
     fn assert_unary(expr: &Expr) -> (&Token, &Expr) {
         match expr {
-            Expr::Unary { operator, right, .. } => (operator, right),
+            Expr::Unary {
+                operator, right, ..
+            } => (operator, right),
             other => panic!("expected Unary expr, got {:?}", other),
         }
     }
@@ -746,7 +839,11 @@ mod tests {
         let stmts = parse("if (a) print 1; else print 2;").expect("parse failed");
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
-            Stmt::If { condition, then_branch, else_branch } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 assert!(matches!(condition.as_ref(), Expr::Variable { .. }));
                 assert!(matches!(then_branch.as_ref(), Stmt::Print { .. }));
                 assert!(else_branch.is_some());
@@ -873,7 +970,12 @@ mod tests {
         let stmt = parse_one("a ? b : c;");
         let expr = assert_expression_stmt(&stmt);
         match expr {
-            Expr::Ternary { condition, then_branch, else_branch, .. } => {
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 assert_variable(condition);
                 assert_variable(then_branch);
                 assert_variable(else_branch);
@@ -887,7 +989,12 @@ mod tests {
         let stmt = parse_one("a and b;");
         let expr = assert_expression_stmt(&stmt);
         match expr {
-            Expr::Logical { operator, left, right, .. } => {
+            Expr::Logical {
+                operator,
+                left,
+                right,
+                ..
+            } => {
                 assert_eq!(operator.lexeme(), "and");
                 assert_variable(left);
                 assert_variable(right);
@@ -901,7 +1008,12 @@ mod tests {
         let stmt = parse_one("a or b;");
         let expr = assert_expression_stmt(&stmt);
         match expr {
-            Expr::Logical { operator, left, right, .. } => {
+            Expr::Logical {
+                operator,
+                left,
+                right,
+                ..
+            } => {
                 assert_eq!(operator.lexeme(), "or");
                 assert_variable(left);
                 assert_variable(right);
@@ -938,7 +1050,9 @@ mod tests {
         let stmt = parse_one("f(a, b);");
         let expr = assert_expression_stmt(&stmt);
         match expr {
-            Expr::Call { callee, arguments, .. } => {
+            Expr::Call {
+                callee, arguments, ..
+            } => {
                 assert_variable(callee);
                 assert_eq!(arguments.len(), 2);
             }
@@ -996,7 +1110,11 @@ mod tests {
     fn test_parse_class_declaration() {
         let stmts = parse("class Foo { bar() { print 1; } }").expect("parse failed");
         match &stmts[0] {
-            Stmt::Class { name, superclass, methods } => {
+            Stmt::Class {
+                name,
+                superclass,
+                methods,
+            } => {
                 assert_eq!(name.lexeme(), "Foo");
                 assert!(superclass.is_none());
                 assert_eq!(methods.len(), 1);
@@ -1009,7 +1127,9 @@ mod tests {
     fn test_parse_class_with_superclass() {
         let stmts = parse("class Foo < Bar { }").expect("parse failed");
         match &stmts[0] {
-            Stmt::Class { name, superclass, .. } => {
+            Stmt::Class {
+                name, superclass, ..
+            } => {
                 assert_eq!(name.lexeme(), "Foo");
                 assert!(superclass.is_some());
             }
