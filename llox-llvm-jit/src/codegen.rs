@@ -14,11 +14,12 @@ use crate::datastructs::exceptions::CodeGenError;
 use crate::datastructs::expr::Expr;
 use crate::datastructs::literal::Literal;
 use crate::datastructs::stmt::Stmt;
-use crate::datastructs::token::TokenType;
+use crate::datastructs::token::{Token, TokenType};
 #[cfg(any(feature = "debug_dump_ir", feature = "debug_dump_assembly"))]
 use crate::debug::llvm;
 use crate::runtime::{
-    LoxValue, TAG_BOOL, TAG_NIL, TAG_NUMBER, TAG_STRING, lox_print_value, lox_runtime_error,
+    LoxValue, TAG_BOOL, TAG_NIL, TAG_NUMBER, TAG_STRING, lox_concat_strings, lox_print_value,
+    lox_runtime_error,
 };
 
 pub struct CodeGen<'ctx> {
@@ -120,6 +121,16 @@ impl<'ctx> CodeGen<'ctx> {
         let function_type = void_type.fn_type(&[i32_type.into(), ptr_type.into()], false);
         self.module
             .add_function("lox_runtime_error", function_type, Some(Linkage::External))
+    }
+
+    fn declare_lox_concat_strings(&self) -> FunctionValue<'ctx> {
+        if let Some(function) = self.module.get_function("lox_concat_strings") {
+            return function;
+        }
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let function_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        self.module
+            .add_function("lox_concat_strings", function_type, Some(Linkage::External))
     }
 
     fn build_runtime_error(&self, line: usize, message: &str) -> Result<(), CodeGenError> {
@@ -266,48 +277,20 @@ impl<'ctx> CodeGen<'ctx> {
             } => {
                 let lhs = self.compile_expr(left)?;
                 let rhs = self.compile_expr(right)?;
-                let result = match operator.token_type() {
-                    // TokenType::Plus => self.builder.build_float_add(l, r, "addtmp"),
+                match operator.token_type() {
+                    TokenType::Plus => match (self.type_of(lhs)?, self.type_of(rhs)?) {
+                        (TAG_NUMBER, TAG_NUMBER) => self.num_binary_op(lhs, operator, rhs),
+                        (TAG_STRING, TAG_STRING) => self.string_binary_op(lhs, operator, rhs),
+                        _ => self.num_binary_op(lhs, operator, rhs),
+                    },
                     TokenType::Minus | TokenType::Star | TokenType::Slash => {
-                        self.build_check_type(
-                            lhs,
-                            TAG_NUMBER,
-                            operator.line(),
-                            "Operand must be a number.",
-                        )?;
-                        self.build_check_type(
-                            rhs,
-                            TAG_NUMBER,
-                            operator.line(),
-                            "Operand must be a number.",
-                        )?;
-
-                        let l = self.as_f64(lhs);
-                        let r = self.as_f64(rhs);
-                        match operator.token_type() {
-                            TokenType::Minus => self.builder.build_float_sub(l, r, "subtmp"),
-                            TokenType::Star => self.builder.build_float_mul(l, r, "multmp"),
-                            TokenType::Slash => self.builder.build_float_div(l, r, "divtmp"),
-                            _ => unreachable!(),
-                        }
+                        self.num_binary_op(lhs, operator, rhs)
                     }
-                    _ => {
-                        return Err(CodeGenError::Unsupported {
-                            token: None,
-                            message: "unsupported binary operator".to_string(),
-                        });
-                    }
+                    _ => Err(CodeGenError::Unsupported {
+                        token: Some(operator.clone()),
+                        message: "unsupported binary operator".to_string(),
+                    }),
                 }
-                .map_err(|error| CodeGenError::Llvm {
-                    message: error.to_string(),
-                })?;
-
-                let bits = self
-                    .builder
-                    .build_bit_cast(result, self.context.i64_type(), "numbits")
-                    .unwrap()
-                    .into_int_value();
-                Ok(self.make_lox_value(TAG_NUMBER, bits))
             }
 
             _ => Err(CodeGenError::Unsupported {
@@ -338,6 +321,124 @@ impl<'ctx> CodeGen<'ctx> {
             .ok_or_else(|| CodeGenError::Llvm {
                 message: "failed to get constant value of tag".into(),
             })? as u8)
+    }
+
+    fn num_binary_op(
+        &self,
+        lhs: StructValue<'ctx>,
+        operator: &Token,
+        rhs: StructValue<'ctx>,
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
+        self.build_check_type(
+            lhs,
+            TAG_NUMBER,
+            operator.line(),
+            "Operands must be numbers.",
+        )?;
+        self.build_check_type(
+            rhs,
+            TAG_NUMBER,
+            operator.line(),
+            "Operands must be numbers.",
+        )?;
+
+        let left = self.as_f64(lhs);
+        let right = self.as_f64(rhs);
+        let result = match operator.token_type() {
+            TokenType::Plus => self.builder.build_float_add(left, right, "addtmp"),
+            TokenType::Minus => self.builder.build_float_sub(left, right, "subtmp"),
+            TokenType::Star => self.builder.build_float_mul(left, right, "multmp"),
+            TokenType::Slash => self.builder.build_float_div(left, right, "divtmp"),
+            _ => {
+                return Err(CodeGenError::Unsupported {
+                    token: Some(operator.clone()),
+                    message: "unsupported numeric binary operator".to_string(),
+                });
+            }
+        }
+        .map_err(|error| CodeGenError::Llvm {
+            message: error.to_string(),
+        })?;
+
+        let bits = self
+            .builder
+            .build_bit_cast(result, self.context.i64_type(), "numbits")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+        Ok(self.make_lox_value(TAG_NUMBER, bits))
+    }
+
+    fn string_binary_op(
+        &self,
+        lhs: StructValue<'ctx>,
+        operator: &Token,
+        rhs: StructValue<'ctx>,
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
+        self.build_check_type(
+            lhs,
+            TAG_STRING,
+            operator.line(),
+            "Operands must be two strings.",
+        )?;
+        self.build_check_type(
+            rhs,
+            TAG_STRING,
+            operator.line(),
+            "Operands must be two strings.",
+        )?;
+
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let left_bits = self
+            .builder
+            .build_extract_value(lhs, 1, "left_string_bits")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+        let right_bits = self
+            .builder
+            .build_extract_value(rhs, 1, "right_string_bits")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+        let left = self
+            .builder
+            .build_int_to_ptr(left_bits, ptr_type, "left_string")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let right = self
+            .builder
+            .build_int_to_ptr(right_bits, ptr_type, "right_string")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let result = self
+            .builder
+            .build_call(
+                self.declare_lox_concat_strings(),
+                &[left.into(), right.into()],
+                "concat",
+            )
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodeGenError::Llvm {
+                message: "string concatenation returned no value".to_string(),
+            })?
+            .into_pointer_value();
+        let bits = self
+            .builder
+            .build_ptr_to_int(result, self.context.i64_type(), "string_bits")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        Ok(self.make_lox_value(TAG_STRING, bits))
     }
 
     fn build_check_type(
@@ -505,6 +606,11 @@ impl<'ctx> CodeGen<'ctx> {
             let runtime_error_ptr: unsafe extern "C" fn(u32, *const c_char) -> () =
                 lox_runtime_error;
             execution_engine.add_global_mapping(&runtime_error, runtime_error_ptr as usize);
+        }
+        if let Some(concat_strings) = self.module.get_function("lox_concat_strings") {
+            let concat_strings_ptr: extern "C" fn(*const c_char, *const c_char) -> *mut c_char =
+                lox_concat_strings;
+            execution_engine.add_global_mapping(&concat_strings, concat_strings_ptr as usize);
         }
         let function =
             unsafe { execution_engine.get_function::<unsafe extern "C" fn() -> i32>("llox_main") }

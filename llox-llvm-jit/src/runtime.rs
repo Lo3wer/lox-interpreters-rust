@@ -1,4 +1,5 @@
 use std::ffi::CStr;
+use std::ffi::CString;
 use std::ffi::c_char;
 
 #[repr(C)]
@@ -36,6 +37,15 @@ pub extern "C" fn lox_print_value(v: LoxValue) {
         ),
         _ => {}
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn lox_concat_strings(left: *const c_char, right: *const c_char) -> *mut c_char {
+    let left = unsafe { CStr::from_ptr(left) }.to_string_lossy();
+    let right = unsafe { CStr::from_ptr(right) }.to_string_lossy();
+    CString::new(format!("{left}{right}"))
+        .expect("strings from CStr cannot contain interior NUL bytes")
+        .into_raw()
 }
 
 #[unsafe(no_mangle)]
