@@ -8,7 +8,7 @@ use crate::datastructs::exceptions::CodeGenError;
 use crate::datastructs::expr::Expr;
 use crate::datastructs::literal::Literal;
 use crate::datastructs::token::{Token, TokenType};
-use crate::runtime::{TAG_BOOL, TAG_NUMBER, TAG_STRING};
+use crate::runtime::{TAG_BOOL, TAG_NIL, TAG_NUMBER, TAG_STRING};
 
 impl<'ctx> CodeGen<'ctx> {
     pub(super) fn compile_expr(&self, expr: &Expr) -> Result<StructValue<'ctx>, CodeGenError> {
@@ -107,7 +107,7 @@ impl<'ctx> CodeGen<'ctx> {
                     TokenType::Plus => match (self.type_of(lhs)?, self.type_of(rhs)?) {
                         (TAG_NUMBER, TAG_NUMBER) => self.num_binary_op(lhs, operator, rhs),
                         (TAG_STRING, TAG_STRING) => self.string_binary_op(lhs, operator, rhs),
-                        _ => self.num_binary_op(lhs, operator, rhs),
+                        _ => self.plus_type_error(operator.line()),
                     },
                     TokenType::Minus | TokenType::Star | TokenType::Slash => {
                         self.num_binary_op(lhs, operator, rhs)
@@ -116,6 +116,12 @@ impl<'ctx> CodeGen<'ctx> {
                     | TokenType::LessEqual
                     | TokenType::Greater
                     | TokenType::GreaterEqual => self.num_compare_op(lhs, operator, rhs),
+                    TokenType::EqualEqual | TokenType::BangEqual => {
+                        match (self.type_of(lhs)?, self.type_of(rhs)?) {
+                            (TAG_NUMBER, TAG_NUMBER) => self.num_compare_op(lhs, operator, rhs),
+                            _ => self.num_binary_op(lhs, operator, rhs),
+                        }
+                    }
                     _ => Err(CodeGenError::Unsupported {
                         token: Some(operator.clone()),
                         message: "unsupported binary operator".to_string(),
@@ -161,6 +167,35 @@ impl<'ctx> CodeGen<'ctx> {
             })?
             .into_int_value();
         Ok(self.make_lox_value(TAG_NUMBER, bits))
+    }
+
+    fn plus_type_error(&self, line: usize) -> Result<StructValue<'ctx>, CodeGenError> {
+        let current_block = self
+            .builder
+            .get_insert_block()
+            .ok_or_else(|| CodeGenError::Llvm {
+                message: "no current LLVM insertion block".to_string(),
+            })?;
+        let function = current_block
+            .get_parent()
+            .ok_or_else(|| CodeGenError::Llvm {
+                message: "current block has no parent function".to_string(),
+            })?;
+
+        self.build_runtime_error(line, RuntimeErrorKind::OperandsMustBeNumbersOrStrings)?;
+        self.builder
+            .build_return(Some(&self.context.i32_type().const_int(70, false)))
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
+        // Keep code generation structurally valid after the terminating error path.
+        let continue_block = self
+            .context
+            .append_basic_block(function, "plus_type_error_continue");
+        self.builder.position_at_end(continue_block);
+        let bits = self.context.i64_type().const_int(0, false);
+        Ok(self.make_lox_value(TAG_NIL, bits))
     }
 
     fn checked_numeric_operands(

@@ -10,6 +10,7 @@ pub(super) enum RuntimeErrorKind {
     OperandMustBeNumber,
     OperandsMustBeNumbers,
     OperandsMustBeStrings,
+    OperandsMustBeNumbersOrStrings,
 }
 
 impl RuntimeErrorKind {
@@ -18,6 +19,7 @@ impl RuntimeErrorKind {
             Self::OperandMustBeNumber => "Operand must be a number.",
             Self::OperandsMustBeNumbers => "Operands must be numbers.",
             Self::OperandsMustBeStrings => "Operands must be two strings.",
+            Self::OperandsMustBeNumbersOrStrings => "Operands must be two numbers or two strings.",
         }
     }
 
@@ -26,6 +28,7 @@ impl RuntimeErrorKind {
             Self::OperandMustBeNumber => "err_msg_operand_number",
             Self::OperandsMustBeNumbers => "err_msg_operands_numbers",
             Self::OperandsMustBeStrings => "err_msg_operands_strings",
+            Self::OperandsMustBeNumbersOrStrings => "err_msg_operands_strings_numbers",
         }
     }
 }
