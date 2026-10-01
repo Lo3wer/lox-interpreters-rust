@@ -2,6 +2,7 @@ use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 
 use crate::datastructs::exceptions::CodeGenError;
@@ -30,7 +31,7 @@ impl<'ctx> CodeGen<'ctx> {
                 &triple,
                 "generic",
                 "",
-                OptimizationLevel::None,
+                OptimizationLevel::Default,
                 RelocMode::Default,
                 CodeModel::Default,
             )
@@ -61,5 +62,13 @@ impl<'ctx> CodeGen<'ctx> {
                 message: error.to_string(),
             })?;
         Ok(())
+    }
+
+    pub fn optimize(&self) -> Result<(), CodeGenError> {
+        self.module
+            .run_passes("default<O1>", &self.machine, PassBuilderOptions::create())
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })
     }
 }

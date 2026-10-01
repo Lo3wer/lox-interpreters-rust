@@ -6,6 +6,15 @@ use super::CodeGen;
 use crate::datastructs::exceptions::CodeGenError;
 
 impl<'ctx> CodeGen<'ctx> {
+    fn error_message_name(message: &str) -> &'static str {
+        match message {
+            "Operand must be a number." => "err_msg_operand_number",
+            "Operands must be numbers." => "err_msg_operands_numbers",
+            "Operands must be two strings." => "err_msg_operands_strings",
+            _ => "err_msg",
+        }
+    }
+
     fn declare_lox_print(&self) -> FunctionValue<'ctx> {
         if let Some(function) = self.module.get_function("lox_print_value") {
             return function;
@@ -55,13 +64,17 @@ impl<'ctx> CodeGen<'ctx> {
     ) -> Result<(), CodeGenError> {
         let lox_runtime_error = self.declare_lox_runtime_error();
         let line_val = self.context.i32_type().const_int(line as u64, false);
-        let msg_ptr = self
-            .builder
-            .build_global_string_ptr(message, "err_msg")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .as_pointer_value();
+        let message_name = Self::error_message_name(message);
+        let msg_ptr = match self.module.get_global(message_name) {
+            Some(global) => global.as_pointer_value(),
+            None => self
+                .builder
+                .build_global_string_ptr(message, message_name)
+                .map_err(|error| CodeGenError::Llvm {
+                    message: error.to_string(),
+                })?
+                .as_pointer_value(),
+        };
 
         self.builder
             .build_call(lox_runtime_error, &[line_val.into(), msg_ptr.into()], "")

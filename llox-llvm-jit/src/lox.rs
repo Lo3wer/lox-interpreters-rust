@@ -146,6 +146,12 @@ impl Lox {
             return;
         }
 
+        if let Err(error) = codegen.optimize() {
+            eprintln!("LLVM optimization error: {:?}", error);
+            self.had_error = true;
+            return;
+        }
+
         #[cfg(feature = "debug_dump_ir")]
         {
             codegen.dump_ir();

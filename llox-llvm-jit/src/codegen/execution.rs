@@ -23,7 +23,7 @@ impl<'ctx> CodeGen<'ctx> {
     pub unsafe fn run(&self) -> Result<i32, CodeGenError> {
         let execution_engine = self
             .module
-            .create_jit_execution_engine(OptimizationLevel::None)
+            .create_jit_execution_engine(OptimizationLevel::Default)
             .map_err(|error| CodeGenError::Llvm {
                 message: error.to_string(),
             })?;
