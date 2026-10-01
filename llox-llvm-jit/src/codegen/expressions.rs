@@ -1,5 +1,6 @@
 use inkwell::AddressSpace;
-use inkwell::values::StructValue;
+use inkwell::FloatPredicate;
+use inkwell::values::{FloatValue, StructValue};
 
 use super::CodeGen;
 use super::runtime::RuntimeErrorKind;
@@ -111,6 +112,10 @@ impl<'ctx> CodeGen<'ctx> {
                     TokenType::Minus | TokenType::Star | TokenType::Slash => {
                         self.num_binary_op(lhs, operator, rhs)
                     }
+                    TokenType::Less
+                    | TokenType::LessEqual
+                    | TokenType::Greater
+                    | TokenType::GreaterEqual => self.num_compare_op(lhs, operator, rhs),
                     _ => Err(CodeGenError::Unsupported {
                         token: Some(operator.clone()),
                         message: "unsupported binary operator".to_string(),
@@ -131,21 +136,7 @@ impl<'ctx> CodeGen<'ctx> {
         operator: &Token,
         rhs: StructValue<'ctx>,
     ) -> Result<StructValue<'ctx>, CodeGenError> {
-        self.build_check_type(
-            lhs,
-            TAG_NUMBER,
-            operator.line(),
-            RuntimeErrorKind::OperandsMustBeNumbers,
-        )?;
-        self.build_check_type(
-            rhs,
-            TAG_NUMBER,
-            operator.line(),
-            RuntimeErrorKind::OperandsMustBeNumbers,
-        )?;
-
-        let left = self.as_f64(lhs);
-        let right = self.as_f64(rhs);
+        let (left, right) = self.checked_numeric_operands(lhs, operator, rhs)?;
         let result = match operator.token_type() {
             TokenType::Plus => self.builder.build_float_add(left, right, "addtmp"),
             TokenType::Minus => self.builder.build_float_sub(left, right, "subtmp"),
@@ -170,6 +161,64 @@ impl<'ctx> CodeGen<'ctx> {
             })?
             .into_int_value();
         Ok(self.make_lox_value(TAG_NUMBER, bits))
+    }
+
+    fn checked_numeric_operands(
+        &self,
+        lhs: StructValue<'ctx>,
+        operator: &Token,
+        rhs: StructValue<'ctx>,
+    ) -> Result<(FloatValue<'ctx>, FloatValue<'ctx>), CodeGenError> {
+        self.build_check_type(
+            lhs,
+            TAG_NUMBER,
+            operator.line(),
+            RuntimeErrorKind::OperandsMustBeNumbers,
+        )?;
+        self.build_check_type(
+            rhs,
+            TAG_NUMBER,
+            operator.line(),
+            RuntimeErrorKind::OperandsMustBeNumbers,
+        )?;
+
+        Ok((self.as_f64(lhs), self.as_f64(rhs)))
+    }
+
+    fn num_compare_op(
+        &self,
+        lhs: StructValue<'ctx>,
+        operator: &Token,
+        rhs: StructValue<'ctx>,
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
+        let (left, right) = self.checked_numeric_operands(lhs, operator, rhs)?;
+        let (predicate, name) = match operator.token_type() {
+            TokenType::Less => (FloatPredicate::OLT, "cmplt"),
+            TokenType::LessEqual => (FloatPredicate::OLE, "cmplte"),
+            TokenType::Greater => (FloatPredicate::OGT, "cmpgt"),
+            TokenType::GreaterEqual => (FloatPredicate::OGE, "cmpgte"),
+            _ => {
+                return Err(CodeGenError::Unsupported {
+                    token: Some(operator.clone()),
+                    message: "unsupported comparison operator".to_string(),
+                });
+            }
+        };
+
+        let result = self
+            .builder
+            .build_float_compare(predicate, left, right, name)
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let bits = self
+            .builder
+            .build_int_z_extend(result, self.context.i64_type(), "boolbits")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
+        Ok(self.make_lox_value(TAG_BOOL, bits))
     }
 
     fn string_binary_op(
