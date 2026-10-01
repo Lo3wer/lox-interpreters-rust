@@ -2,6 +2,7 @@ use inkwell::AddressSpace;
 use inkwell::values::StructValue;
 
 use super::CodeGen;
+use super::runtime::RuntimeErrorKind;
 use crate::datastructs::exceptions::CodeGenError;
 use crate::datastructs::expr::Expr;
 use crate::datastructs::literal::Literal;
@@ -69,7 +70,7 @@ impl<'ctx> CodeGen<'ctx> {
                             value,
                             TAG_NUMBER,
                             operator.line(),
-                            "Operand must be a number.",
+                            RuntimeErrorKind::OperandMustBeNumber,
                         )?;
                         let num = self.as_f64(value);
                         let neg = self.builder.build_float_neg(num, "neg").map_err(|error| {
@@ -134,13 +135,13 @@ impl<'ctx> CodeGen<'ctx> {
             lhs,
             TAG_NUMBER,
             operator.line(),
-            "Operands must be numbers.",
+            RuntimeErrorKind::OperandsMustBeNumbers,
         )?;
         self.build_check_type(
             rhs,
             TAG_NUMBER,
             operator.line(),
-            "Operands must be numbers.",
+            RuntimeErrorKind::OperandsMustBeNumbers,
         )?;
 
         let left = self.as_f64(lhs);
@@ -181,13 +182,13 @@ impl<'ctx> CodeGen<'ctx> {
             lhs,
             TAG_STRING,
             operator.line(),
-            "Operands must be two strings.",
+            RuntimeErrorKind::OperandsMustBeStrings,
         )?;
         self.build_check_type(
             rhs,
             TAG_STRING,
             operator.line(),
-            "Operands must be two strings.",
+            RuntimeErrorKind::OperandsMustBeStrings,
         )?;
 
         let ptr_type = self.context.ptr_type(AddressSpace::default());

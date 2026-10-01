@@ -3,6 +3,7 @@ use inkwell::types::StructType;
 use inkwell::values::{FloatValue, IntValue, StructValue};
 
 use super::CodeGen;
+use super::runtime::RuntimeErrorKind;
 use crate::datastructs::exceptions::CodeGenError;
 use crate::runtime::{TAG_BOOL, TAG_NIL};
 
@@ -74,7 +75,7 @@ impl<'ctx> CodeGen<'ctx> {
         val: StructValue<'ctx>,
         expected_tag: u8,
         line: usize,
-        error_msg: &str,
+        error_kind: RuntimeErrorKind,
     ) -> Result<(), CodeGenError> {
         let current_block = self
             .builder
@@ -118,7 +119,7 @@ impl<'ctx> CodeGen<'ctx> {
             })?;
 
         self.builder.position_at_end(error_block);
-        self.build_runtime_error(line, error_msg)?;
+        self.build_runtime_error(line, error_kind)?;
         self.builder
             .build_return(Some(&self.context.i32_type().const_int(70, false)))
             .map_err(|e| CodeGenError::Llvm {
