@@ -1,6 +1,6 @@
 use inkwell::AddressSpace;
 use inkwell::module::Linkage;
-use inkwell::values::{FunctionValue, StructValue};
+use inkwell::values::{FunctionValue, IntValue, StructValue};
 
 use super::CodeGen;
 use crate::datastructs::exceptions::CodeGenError;
@@ -64,6 +64,39 @@ impl<'ctx> CodeGen<'ctx> {
         let function_type = void_type.fn_type(&[i32_type.into(), ptr_type.into()], false);
         self.module
             .add_function("lox_runtime_error", function_type, Some(Linkage::External))
+    }
+
+    pub(super) fn declare_lox_values_equal(&self) -> FunctionValue<'ctx> {
+        if let Some(function) = self.module.get_function("lox_values_equal") {
+            return function;
+        }
+        let bool_type = self.context.bool_type();
+        let function_type = bool_type.fn_type(
+            &[self.lox_value_type().into(), self.lox_value_type().into()],
+            false,
+        );
+        self.module
+            .add_function("lox_values_equal", function_type, Some(Linkage::External))
+    }
+
+    pub(super) fn build_values_equal(
+        &self,
+        lhs: StructValue<'ctx>,
+        rhs: StructValue<'ctx>,
+    ) -> Result<IntValue<'ctx>, CodeGenError> {
+        let lox_values_equal = self.declare_lox_values_equal();
+        Ok(self
+            .builder
+            .build_call(lox_values_equal, &[lhs.into(), rhs.into()], "eq")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodeGenError::Llvm {
+                message: "equality comparison returned no value".to_string(),
+            })?
+            .into_int_value())
     }
 
     pub(super) fn declare_lox_concat_strings(&self) -> FunctionValue<'ctx> {

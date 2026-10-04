@@ -49,6 +49,24 @@ pub extern "C" fn lox_concat_strings(left: *const c_char, right: *const c_char) 
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn lox_values_equal(a: LoxValue, b: LoxValue) -> bool {
+    if a.tag != b.tag {
+        return false;
+    }
+    match a.tag {
+        TAG_NIL => true,
+        TAG_BOOL => a.bits == b.bits,
+        TAG_NUMBER => f64::from_bits(a.bits) == f64::from_bits(b.bits),
+        TAG_STRING => {
+            let left = unsafe { CStr::from_ptr(a.bits as *const c_char) };
+            let right = unsafe { CStr::from_ptr(b.bits as *const c_char) };
+            left == right
+        }
+        _ => a.bits == b.bits,
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn lox_runtime_error(line: u32, msg: *const c_char) {
     if msg.is_null() {
         eprintln!("[Error]: Received a null pointer");

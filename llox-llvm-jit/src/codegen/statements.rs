@@ -5,6 +5,10 @@ use crate::datastructs::stmt::Stmt;
 impl<'ctx> CodeGen<'ctx> {
     pub(super) fn compile_stmt(&self, statement: &Stmt) -> Result<(), CodeGenError> {
         match statement {
+            Stmt::Expression { expression } => {
+                self.compile_expr(expression)?;
+                Ok(())
+            }
             Stmt::Print { expression } => {
                 let value = self.compile_expr(expression)?;
                 self.build_print(value)

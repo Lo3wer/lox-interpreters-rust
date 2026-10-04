@@ -4,7 +4,9 @@ use inkwell::OptimizationLevel;
 
 #[cfg(any(feature = "debug_dump_ir", feature = "debug_dump_assembly"))]
 use crate::debug::llvm;
-use crate::runtime::{LoxValue, lox_concat_strings, lox_print_value, lox_runtime_error};
+use crate::runtime::{
+    LoxValue, lox_concat_strings, lox_print_value, lox_runtime_error, lox_values_equal,
+};
 
 use super::CodeGen;
 use crate::datastructs::exceptions::CodeGenError;
@@ -35,6 +37,10 @@ impl<'ctx> CodeGen<'ctx> {
             let runtime_error_ptr: unsafe extern "C" fn(u32, *const c_char) -> () =
                 lox_runtime_error;
             execution_engine.add_global_mapping(&runtime_error, runtime_error_ptr as usize);
+        }
+        if let Some(values_equal) = self.module.get_function("lox_values_equal") {
+            let values_equal_ptr: extern "C" fn(LoxValue, LoxValue) -> bool = lox_values_equal;
+            execution_engine.add_global_mapping(&values_equal, values_equal_ptr as usize);
         }
         if let Some(concat_strings) = self.module.get_function("lox_concat_strings") {
             let concat_strings_ptr: extern "C" fn(*const c_char, *const c_char) -> *mut c_char =

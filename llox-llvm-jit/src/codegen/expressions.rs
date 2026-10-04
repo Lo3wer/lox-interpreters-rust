@@ -117,10 +117,23 @@ impl<'ctx> CodeGen<'ctx> {
                     | TokenType::Greater
                     | TokenType::GreaterEqual => self.num_compare_op(lhs, operator, rhs),
                     TokenType::EqualEqual | TokenType::BangEqual => {
-                        match (self.type_of(lhs)?, self.type_of(rhs)?) {
-                            (TAG_NUMBER, TAG_NUMBER) => self.num_compare_op(lhs, operator, rhs),
-                            _ => self.num_binary_op(lhs, operator, rhs),
-                        }
+                        let equal = self.build_values_equal(lhs, rhs)?;
+                        let result = if operator.token_type() == TokenType::BangEqual {
+                            self.builder.build_not(equal, "neq").map_err(|error| {
+                                CodeGenError::Llvm {
+                                    message: error.to_string(),
+                                }
+                            })?
+                        } else {
+                            equal
+                        };
+                        let bits = self
+                            .builder
+                            .build_int_z_extend(result, self.context.i64_type(), "eqbits")
+                            .map_err(|error| CodeGenError::Llvm {
+                                message: error.to_string(),
+                            })?;
+                        Ok(self.make_lox_value(TAG_BOOL, bits))
                     }
                     _ => Err(CodeGenError::Unsupported {
                         token: Some(operator.clone()),
