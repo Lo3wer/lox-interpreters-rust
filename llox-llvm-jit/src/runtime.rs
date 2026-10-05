@@ -17,6 +17,7 @@ pub const TAG_CLOSURE: u8 = 4; // bits: *const LoxClosure
 pub const TAG_CLASS: u8 = 5; // bits: *const LoxClass
 pub const TAG_INSTANCE: u8 = 6; // bits: *const LoxInstance
 pub const TAG_BOUND_METHOD: u8 = 7; // bits: *const LoxBoundMethod
+pub const TAG_UNDEFINED: u8 = 8; // internal sentinel for uninitialized globals
 
 #[unsafe(no_mangle)]
 pub extern "C" fn lox_print_value(v: LoxValue) {

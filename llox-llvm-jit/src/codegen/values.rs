@@ -3,7 +3,6 @@ use inkwell::types::StructType;
 use inkwell::values::{FloatValue, IntValue, StructValue};
 
 use super::CodeGen;
-use super::runtime::RuntimeErrorKind;
 use crate::datastructs::exceptions::CodeGenError;
 use crate::runtime::{TAG_BOOL, TAG_NIL};
 
@@ -47,35 +46,12 @@ impl<'ctx> CodeGen<'ctx> {
             .into_float_value()
     }
 
-    pub(super) fn type_of(&self, val: StructValue<'ctx>) -> Result<u8, CodeGenError> {
-        let tag = self
-            .builder
-            .build_extract_value(val, 0, "tag")
-            .map_err(|e| CodeGenError::Llvm {
-                message: e.to_string(),
-            })?
-            .into_int_value();
-
-        let tag_const = self
-            .builder
-            .build_int_cast(tag, self.context.i8_type(), "tag_const")
-            .map_err(|e| CodeGenError::Llvm {
-                message: e.to_string(),
-            })?;
-
-        Ok(tag_const
-            .get_zero_extended_constant()
-            .ok_or_else(|| CodeGenError::Llvm {
-                message: "failed to get constant value of tag".into(),
-            })? as u8)
-    }
-
     pub(super) fn build_check_type(
         &self,
         val: StructValue<'ctx>,
         expected_tag: u8,
         line: usize,
-        error_kind: RuntimeErrorKind,
+        message: &str,
     ) -> Result<(), CodeGenError> {
         let current_block = self
             .builder
@@ -119,7 +95,7 @@ impl<'ctx> CodeGen<'ctx> {
             })?;
 
         self.builder.position_at_end(error_block);
-        self.build_runtime_error(line, error_kind)?;
+        self.build_runtime_error(line, message)?;
         self.builder
             .build_return(Some(&self.context.i32_type().const_int(70, false)))
             .map_err(|e| CodeGenError::Llvm {

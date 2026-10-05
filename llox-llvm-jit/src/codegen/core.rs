@@ -1,9 +1,13 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::values::GlobalValue;
 
 use crate::datastructs::exceptions::CodeGenError;
 use crate::datastructs::stmt::Stmt;
@@ -13,6 +17,7 @@ pub struct CodeGen<'ctx> {
     pub builder: Builder<'ctx>,
     pub module: Module<'ctx>,
     pub(super) machine: TargetMachine,
+    pub(super) globals: RefCell<HashMap<String, GlobalValue<'ctx>>>,
 }
 
 impl<'ctx> CodeGen<'ctx> {
@@ -43,6 +48,7 @@ impl<'ctx> CodeGen<'ctx> {
             builder: context.create_builder(),
             module: context.create_module("llox_module"),
             machine,
+            globals: RefCell::new(HashMap::new()),
         })
     }
 

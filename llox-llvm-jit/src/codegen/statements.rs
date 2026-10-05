@@ -13,6 +13,10 @@ impl<'ctx> CodeGen<'ctx> {
                 let value = self.compile_expr(expression)?;
                 self.build_print(value)
             }
+            Stmt::Var { name, initializer } => {
+                let value = self.compile_expr(initializer)?;
+                self.build_global_define(name.lexeme(), value)
+            }
             _ => Err(CodeGenError::Unsupported {
                 token: None,
                 message: "unsupported statement".to_string(),

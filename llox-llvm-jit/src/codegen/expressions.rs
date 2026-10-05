@@ -1,9 +1,9 @@
 use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
+use inkwell::IntPredicate;
 use inkwell::values::{FloatValue, StructValue};
 
 use super::CodeGen;
-use super::runtime::RuntimeErrorKind;
 use crate::datastructs::exceptions::CodeGenError;
 use crate::datastructs::expr::Expr;
 use crate::datastructs::literal::Literal;
@@ -24,7 +24,7 @@ impl<'ctx> CodeGen<'ctx> {
                 }
                 Literal::Nil => {
                     let bits = self.context.i64_type().const_int(0, false);
-                    Ok(self.make_lox_value(crate::runtime::TAG_NIL, bits))
+                    Ok(self.make_lox_value(TAG_NIL, bits))
                 }
                 Literal::String(string) => {
                     let ptr = self
@@ -45,6 +45,13 @@ impl<'ctx> CodeGen<'ctx> {
             },
 
             Expr::Grouping { expression, .. } => self.compile_expr(expression),
+
+            Expr::Variable { name, .. } => self.build_global_load(name.lexeme(), name.line()),
+
+            Expr::Assign { name, value, .. } => {
+                let rhs = self.compile_expr(value)?;
+                self.build_global_assign(name.lexeme(), rhs, name.line())
+            }
 
             Expr::Unary {
                 operator, right, ..
@@ -71,7 +78,7 @@ impl<'ctx> CodeGen<'ctx> {
                             value,
                             TAG_NUMBER,
                             operator.line(),
-                            RuntimeErrorKind::OperandMustBeNumber,
+                            "Operand must be a number.",
                         )?;
                         let num = self.as_f64(value);
                         let neg = self.builder.build_float_neg(num, "neg").map_err(|error| {
@@ -104,11 +111,7 @@ impl<'ctx> CodeGen<'ctx> {
                 let lhs = self.compile_expr(left)?;
                 let rhs = self.compile_expr(right)?;
                 match operator.token_type() {
-                    TokenType::Plus => match (self.type_of(lhs)?, self.type_of(rhs)?) {
-                        (TAG_NUMBER, TAG_NUMBER) => self.num_binary_op(lhs, operator, rhs),
-                        (TAG_STRING, TAG_STRING) => self.string_binary_op(lhs, operator, rhs),
-                        _ => self.plus_type_error(operator.line()),
-                    },
+                    TokenType::Plus => self.compile_addition(lhs, operator, rhs),
                     TokenType::Minus | TokenType::Star | TokenType::Slash => {
                         self.num_binary_op(lhs, operator, rhs)
                     }
@@ -157,7 +160,6 @@ impl<'ctx> CodeGen<'ctx> {
     ) -> Result<StructValue<'ctx>, CodeGenError> {
         let (left, right) = self.checked_numeric_operands(lhs, operator, rhs)?;
         let result = match operator.token_type() {
-            TokenType::Plus => self.builder.build_float_add(left, right, "addtmp"),
             TokenType::Minus => self.builder.build_float_sub(left, right, "subtmp"),
             TokenType::Star => self.builder.build_float_mul(left, right, "multmp"),
             TokenType::Slash => self.builder.build_float_div(left, right, "divtmp"),
@@ -182,7 +184,68 @@ impl<'ctx> CodeGen<'ctx> {
         Ok(self.make_lox_value(TAG_NUMBER, bits))
     }
 
-    fn plus_type_error(&self, line: usize) -> Result<StructValue<'ctx>, CodeGenError> {
+    fn compile_addition(
+        &self,
+        lhs: StructValue<'ctx>,
+        operator: &Token,
+        rhs: StructValue<'ctx>,
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
+        let tag_l = self
+            .builder
+            .build_extract_value(lhs, 0, "lhs_tag")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+        let tag_r = self
+            .builder
+            .build_extract_value(rhs, 0, "rhs_tag")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+
+        let num_tag = self.context.i8_type().const_int(TAG_NUMBER as u64, false);
+        let str_tag = self.context.i8_type().const_int(TAG_STRING as u64, false);
+
+        let lhs_num = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, tag_l, num_tag, "lhs_num")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let rhs_num = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, tag_r, num_tag, "rhs_num")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let both_num = self
+            .builder
+            .build_and(lhs_num, rhs_num, "both_num")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
+        let lhs_str = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, tag_l, str_tag, "lhs_str")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let rhs_str = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, tag_r, str_tag, "rhs_str")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let both_str = self
+            .builder
+            .build_and(lhs_str, rhs_str, "both_str")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
         let current_block = self
             .builder
             .get_insert_block()
@@ -195,20 +258,80 @@ impl<'ctx> CodeGen<'ctx> {
                 message: "current block has no parent function".to_string(),
             })?;
 
-        self.build_runtime_error(line, RuntimeErrorKind::OperandsMustBeNumbersOrStrings)?;
+        let num_bb = self.context.append_basic_block(function, "add_num");
+        let str_check_bb = self.context.append_basic_block(function, "add_str_check");
+        let str_bb = self.context.append_basic_block(function, "add_str");
+        let err_bb = self.context.append_basic_block(function, "add_err");
+        let done_bb = self.context.append_basic_block(function, "add_done");
+
+        self.builder
+            .build_conditional_branch(both_num, num_bb, str_check_bb)
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
+        self.builder.position_at_end(str_check_bb);
+        self.builder
+            .build_conditional_branch(both_str, str_bb, err_bb)
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
+        self.builder.position_at_end(num_bb);
+        let num_result = self.num_add_unchecked(lhs, rhs)?;
+        self.builder
+            .build_unconditional_branch(done_bb)
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
+        self.builder.position_at_end(str_bb);
+        let str_result = self.string_concat_unchecked(lhs, rhs)?;
+        self.builder
+            .build_unconditional_branch(done_bb)
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+
+        self.builder.position_at_end(err_bb);
+        self.build_runtime_error(operator.line(), "Operands must be two numbers or two strings.")?;
         self.builder
             .build_return(Some(&self.context.i32_type().const_int(70, false)))
             .map_err(|error| CodeGenError::Llvm {
                 message: error.to_string(),
             })?;
 
-        // Keep code generation structurally valid after the terminating error path.
-        let continue_block = self
-            .context
-            .append_basic_block(function, "plus_type_error_continue");
-        self.builder.position_at_end(continue_block);
-        let bits = self.context.i64_type().const_int(0, false);
-        Ok(self.make_lox_value(TAG_NIL, bits))
+        self.builder.position_at_end(done_bb);
+        let phi = self
+            .builder
+            .build_phi(self.lox_value_type(), "add_result")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        phi.add_incoming(&[(&num_result, num_bb), (&str_result, str_bb)]);
+        Ok(phi.as_basic_value().into_struct_value())
+    }
+
+    fn num_add_unchecked(
+        &self,
+        lhs: StructValue<'ctx>,
+        rhs: StructValue<'ctx>,
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
+        let left = self.as_f64(lhs);
+        let right = self.as_f64(rhs);
+        let result = self.builder.build_float_add(left, right, "addtmp").map_err(|error| {
+            CodeGenError::Llvm {
+                message: error.to_string(),
+            }
+        })?;
+        let bits = self
+            .builder
+            .build_bit_cast(result, self.context.i64_type(), "numbits")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+        Ok(self.make_lox_value(TAG_NUMBER, bits))
     }
 
     fn checked_numeric_operands(
@@ -221,13 +344,13 @@ impl<'ctx> CodeGen<'ctx> {
             lhs,
             TAG_NUMBER,
             operator.line(),
-            RuntimeErrorKind::OperandsMustBeNumbers,
+            "Operands must be numbers.",
         )?;
         self.build_check_type(
             rhs,
             TAG_NUMBER,
             operator.line(),
-            RuntimeErrorKind::OperandsMustBeNumbers,
+            "Operands must be numbers.",
         )?;
 
         Ok((self.as_f64(lhs), self.as_f64(rhs)))
@@ -269,25 +392,11 @@ impl<'ctx> CodeGen<'ctx> {
         Ok(self.make_lox_value(TAG_BOOL, bits))
     }
 
-    fn string_binary_op(
+    fn string_concat_unchecked(
         &self,
         lhs: StructValue<'ctx>,
-        operator: &Token,
         rhs: StructValue<'ctx>,
     ) -> Result<StructValue<'ctx>, CodeGenError> {
-        self.build_check_type(
-            lhs,
-            TAG_STRING,
-            operator.line(),
-            RuntimeErrorKind::OperandsMustBeStrings,
-        )?;
-        self.build_check_type(
-            rhs,
-            TAG_STRING,
-            operator.line(),
-            RuntimeErrorKind::OperandsMustBeStrings,
-        )?;
-
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let left_bits = self
             .builder

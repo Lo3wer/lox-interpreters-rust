@@ -5,34 +5,6 @@ use inkwell::values::{FunctionValue, IntValue, StructValue};
 use super::CodeGen;
 use crate::datastructs::exceptions::CodeGenError;
 
-#[derive(Clone, Copy)]
-pub(super) enum RuntimeErrorKind {
-    OperandMustBeNumber,
-    OperandsMustBeNumbers,
-    OperandsMustBeStrings,
-    OperandsMustBeNumbersOrStrings,
-}
-
-impl RuntimeErrorKind {
-    fn message(self) -> &'static str {
-        match self {
-            Self::OperandMustBeNumber => "Operand must be a number.",
-            Self::OperandsMustBeNumbers => "Operands must be numbers.",
-            Self::OperandsMustBeStrings => "Operands must be two strings.",
-            Self::OperandsMustBeNumbersOrStrings => "Operands must be two numbers or two strings.",
-        }
-    }
-
-    fn global_name(self) -> &'static str {
-        match self {
-            Self::OperandMustBeNumber => "err_msg_operand_number",
-            Self::OperandsMustBeNumbers => "err_msg_operands_numbers",
-            Self::OperandsMustBeStrings => "err_msg_operands_strings",
-            Self::OperandsMustBeNumbersOrStrings => "err_msg_operands_strings_numbers",
-        }
-    }
-}
-
 impl<'ctx> CodeGen<'ctx> {
     fn declare_lox_print(&self) -> FunctionValue<'ctx> {
         if let Some(function) = self.module.get_function("lox_print_value") {
@@ -112,21 +84,17 @@ impl<'ctx> CodeGen<'ctx> {
     pub(super) fn build_runtime_error(
         &self,
         line: usize,
-        error_kind: RuntimeErrorKind,
+        message: &str,
     ) -> Result<(), CodeGenError> {
         let lox_runtime_error = self.declare_lox_runtime_error();
         let line_val = self.context.i32_type().const_int(line as u64, false);
-        let message_name = error_kind.global_name();
-        let msg_ptr = match self.module.get_global(message_name) {
-            Some(global) => global.as_pointer_value(),
-            None => self
-                .builder
-                .build_global_string_ptr(error_kind.message(), message_name)
-                .map_err(|error| CodeGenError::Llvm {
-                    message: error.to_string(),
-                })?
-                .as_pointer_value(),
-        };
+        let msg_ptr = self
+            .builder
+            .build_global_string_ptr(message, "err_msg")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .as_pointer_value();
 
         self.builder
             .build_call(lox_runtime_error, &[line_val.into(), msg_ptr.into()], "")
