@@ -46,6 +46,20 @@ impl<'ctx> CodeGen<'ctx> {
 
             Expr::Grouping { expression, .. } => self.compile_expr(expression),
 
+            Expr::Logical {
+                left,
+                operator,
+                right,
+                ..
+            } => self.compile_logical(left, operator, right),
+
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => self.compile_ternary(condition, then_branch, else_branch),
+
             Expr::Variable { name, id } => {
                 if let Some(slot) = self.resolved_local(*id, name.lexeme())? {
                     Ok(self
@@ -173,6 +187,91 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
+    fn compile_logical(
+        &self,
+        left: &Expr,
+        operator: &Token,
+        right: &Expr,
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
+        let left_value = self.compile_expr(left)?;
+        let is_truthy = self.build_is_truthy(left_value)?;
+        let branch_block = self.current_block()?;
+        let right_block = self.append_block("logical_rhs")?;
+        let merge_block = self.append_block("logical_merge")?;
+
+        match operator.token_type() {
+            TokenType::And => self.conditional_branch_if_open(is_truthy, right_block, merge_block),
+            TokenType::Or => self.conditional_branch_if_open(is_truthy, merge_block, right_block),
+            _ => {
+                return Err(CodeGenError::Unsupported {
+                    token: Some(operator.clone()),
+                    message: "unsupported logical operator".to_string(),
+                });
+            }
+        }?;
+
+        self.builder.position_at_end(right_block);
+        let right_value = self.compile_expr(right)?;
+        let right_end = self.current_block()?;
+        if !self.branch_if_open(merge_block)? {
+            return Err(CodeGenError::Llvm {
+                message: "logical right operand has no fallthrough value".to_string(),
+            });
+        }
+
+        self.builder.position_at_end(merge_block);
+        let result = self
+            .builder
+            .build_phi(self.lox_value_type(), "logical_result")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        result.add_incoming(&[(&left_value, branch_block), (&right_value, right_end)]);
+        Ok(result.as_basic_value().into_struct_value())
+    }
+
+    fn compile_ternary(
+        &self,
+        condition: &Expr,
+        then_branch: &Expr,
+        else_branch: &Expr,
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
+        let condition_value = self.compile_expr(condition)?;
+        let condition_truthy = self.build_is_truthy(condition_value)?;
+        let then_block = self.append_block("ternary_then")?;
+        let else_block = self.append_block("ternary_else")?;
+        let merge_block = self.append_block("ternary_merge")?;
+        self.conditional_branch_if_open(condition_truthy, then_block, else_block)?;
+
+        self.builder.position_at_end(then_block);
+        let then_value = self.compile_expr(then_branch)?;
+        let then_end = self.current_block()?;
+        if !self.branch_if_open(merge_block)? {
+            return Err(CodeGenError::Llvm {
+                message: "ternary then expression has no fallthrough value".to_string(),
+            });
+        }
+
+        self.builder.position_at_end(else_block);
+        let else_value = self.compile_expr(else_branch)?;
+        let else_end = self.current_block()?;
+        if !self.branch_if_open(merge_block)? {
+            return Err(CodeGenError::Llvm {
+                message: "ternary else expression has no fallthrough value".to_string(),
+            });
+        }
+
+        self.builder.position_at_end(merge_block);
+        let result = self
+            .builder
+            .build_phi(self.lox_value_type(), "ternary_result")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        result.add_incoming(&[(&then_value, then_end), (&else_value, else_end)]);
+        Ok(result.as_basic_value().into_struct_value())
+    }
+
     pub(super) fn num_binary_op(
         &self,
         lhs: StructValue<'ctx>,
@@ -267,63 +366,38 @@ impl<'ctx> CodeGen<'ctx> {
                 message: error.to_string(),
             })?;
 
-        let current_block = self
-            .builder
-            .get_insert_block()
-            .ok_or_else(|| CodeGenError::Llvm {
-                message: "no current LLVM insertion block".to_string(),
-            })?;
-        let function = current_block
-            .get_parent()
-            .ok_or_else(|| CodeGenError::Llvm {
-                message: "current block has no parent function".to_string(),
-            })?;
+        let num_bb = self.append_block("add_num")?;
+        let str_check_bb = self.append_block("add_str_check")?;
+        let str_bb = self.append_block("add_str")?;
+        let err_bb = self.append_block("add_err")?;
+        let done_bb = self.append_block("add_done")?;
 
-        let num_bb = self.context.append_basic_block(function, "add_num");
-        let str_check_bb = self.context.append_basic_block(function, "add_str_check");
-        let str_bb = self.context.append_basic_block(function, "add_str");
-        let err_bb = self.context.append_basic_block(function, "add_err");
-        let done_bb = self.context.append_basic_block(function, "add_done");
-
-        self.builder
-            .build_conditional_branch(both_num, num_bb, str_check_bb)
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
+        self.conditional_branch_if_open(both_num, num_bb, str_check_bb)?;
 
         self.builder.position_at_end(str_check_bb);
-        self.builder
-            .build_conditional_branch(both_str, str_bb, err_bb)
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
+        self.conditional_branch_if_open(both_str, str_bb, err_bb)?;
 
         self.builder.position_at_end(num_bb);
         let num_result = self.num_add_unchecked(lhs, rhs)?;
-        self.builder
-            .build_unconditional_branch(done_bb)
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
+        if !self.branch_if_open(done_bb)? {
+            return Err(CodeGenError::Llvm {
+                message: "numeric addition arm has no fallthrough value".to_string(),
+            });
+        }
 
         self.builder.position_at_end(str_bb);
         let str_result = self.string_concat_unchecked(lhs, rhs)?;
-        self.builder
-            .build_unconditional_branch(done_bb)
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
+        if !self.branch_if_open(done_bb)? {
+            return Err(CodeGenError::Llvm {
+                message: "string addition arm has no fallthrough value".to_string(),
+            });
+        }
 
         self.builder.position_at_end(err_bb);
-        self.build_runtime_error(
+        self.emit_runtime_failure(
             operator.line(),
             "Operands must be two numbers or two strings.",
         )?;
-        self.builder
-            .build_return(Some(&self.context.i32_type().const_int(70, false)))
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
 
         self.builder.position_at_end(done_bb);
         let phi = self
@@ -365,15 +439,41 @@ impl<'ctx> CodeGen<'ctx> {
         operator: &Token,
         rhs: StructValue<'ctx>,
     ) -> Result<(FloatValue<'ctx>, FloatValue<'ctx>), CodeGenError> {
-        self.build_check_type(
-            lhs,
-            TAG_NUMBER,
-            operator.line(),
-            "Operands must be numbers.",
-        )?;
-        self.build_check_type(
-            rhs,
-            TAG_NUMBER,
+        let lhs_tag = self
+            .builder
+            .build_extract_value(lhs, 0, "lhs_tag")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+        let rhs_tag = self
+            .builder
+            .build_extract_value(rhs, 0, "rhs_tag")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?
+            .into_int_value();
+        let number_tag = self.context.i8_type().const_int(TAG_NUMBER as u64, false);
+        let lhs_is_number = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, lhs_tag, number_tag, "lhs_is_number")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let rhs_is_number = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, rhs_tag, number_tag, "rhs_is_number")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        let both_are_numbers = self
+            .builder
+            .build_and(lhs_is_number, rhs_is_number, "both_are_numbers")
+            .map_err(|error| CodeGenError::Llvm {
+                message: error.to_string(),
+            })?;
+        self.build_guard(
+            both_are_numbers,
             operator.line(),
             "Operands must be numbers.",
         )?;

@@ -53,24 +53,6 @@ impl<'ctx> CodeGen<'ctx> {
         line: usize,
         message: &str,
     ) -> Result<(), CodeGenError> {
-        let current_block = self
-            .builder
-            .get_insert_block()
-            .ok_or_else(|| CodeGenError::Llvm {
-                message: "no current LLVM insertion block".into(),
-            })?;
-
-        let function = current_block
-            .get_parent()
-            .ok_or_else(|| CodeGenError::Llvm {
-                message: "current block has no parent function".into(),
-            })?;
-
-        let error_block = self.context.append_basic_block(function, "type_error");
-        let continue_block = self
-            .context
-            .append_basic_block(function, "type_check_continue");
-
         let tag = self
             .builder
             .build_extract_value(val, 0, "tag")
@@ -87,23 +69,7 @@ impl<'ctx> CodeGen<'ctx> {
             .map_err(|e| CodeGenError::Llvm {
                 message: e.to_string(),
             })?;
-
-        self.builder
-            .build_conditional_branch(matches, continue_block, error_block)
-            .map_err(|e| CodeGenError::Llvm {
-                message: e.to_string(),
-            })?;
-
-        self.builder.position_at_end(error_block);
-        self.build_runtime_error(line, message)?;
-        self.builder
-            .build_return(Some(&self.context.i32_type().const_int(70, false)))
-            .map_err(|e| CodeGenError::Llvm {
-                message: e.to_string(),
-            })?;
-
-        self.builder.position_at_end(continue_block);
-        Ok(())
+        self.build_guard(matches, line, message)
     }
 
     pub(super) fn build_is_truthy(

@@ -16,7 +16,10 @@ impl<'ctx> CodeGen<'ctx> {
             .add_global(self.lox_value_type(), None, &format!("g_{name}"));
         global.set_linkage(Linkage::Internal);
         let init = self.lox_value_type().const_named_struct(&[
-            self.context.i8_type().const_int(TAG_UNDEFINED as u64, false).into(),
+            self.context
+                .i8_type()
+                .const_int(TAG_UNDEFINED as u64, false)
+                .into(),
             self.context.i64_type().const_int(0, false).into(),
         ]);
         global.set_initializer(&init);
@@ -29,22 +32,7 @@ impl<'ctx> CodeGen<'ctx> {
         global: GlobalValue<'ctx>,
         name: &str,
         line: usize,
-    ) -> Result<(), CodeGenError> {
-        let current_block = self
-            .builder
-            .get_insert_block()
-            .ok_or_else(|| CodeGenError::Llvm {
-                message: "no current LLVM insertion block".to_string(),
-            })?;
-        let function = current_block
-            .get_parent()
-            .ok_or_else(|| CodeGenError::Llvm {
-                message: "current block has no parent function".to_string(),
-            })?;
-
-        let error_block = self.context.append_basic_block(function, "undef_var");
-        let continue_block = self.context.append_basic_block(function, "defined_var");
-
+    ) -> Result<StructValue<'ctx>, CodeGenError> {
         let value = self
             .builder
             .build_load(self.lox_value_type(), global.as_pointer_value(), name)
@@ -59,35 +47,23 @@ impl<'ctx> CodeGen<'ctx> {
                 message: error.to_string(),
             })?
             .into_int_value();
-        let is_undefined = self
+        let is_defined = self
             .builder
             .build_int_compare(
-                IntPredicate::EQ,
+                IntPredicate::NE,
                 tag,
-                self.context.i8_type().const_int(TAG_UNDEFINED as u64, false),
-                "is_undefined",
+                self.context
+                    .i8_type()
+                    .const_int(TAG_UNDEFINED as u64, false),
+                "is_defined",
             )
             .map_err(|error| CodeGenError::Llvm {
                 message: error.to_string(),
             })?;
 
-        self.builder
-            .build_conditional_branch(is_undefined, error_block, continue_block)
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-
-        self.builder.position_at_end(error_block);
         let message = format!("Undefined variable '{name}'.");
-        self.build_runtime_error(line, &message)?;
-        self.builder
-            .build_return(Some(&self.context.i32_type().const_int(70, false)))
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-
-        self.builder.position_at_end(continue_block);
-        Ok(())
+        self.build_guard(is_defined, line, &message)?;
+        Ok(value)
     }
 
     pub(super) fn build_global_define(
@@ -110,15 +86,7 @@ impl<'ctx> CodeGen<'ctx> {
         line: usize,
     ) -> Result<StructValue<'ctx>, CodeGenError> {
         let global = self.get_or_create_global(name);
-        self.check_defined(global, name, line)?;
-        let value = self
-            .builder
-            .build_load(self.lox_value_type(), global.as_pointer_value(), name)
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .into_struct_value();
-        Ok(value)
+        self.check_defined(global, name, line)
     }
 
     pub(super) fn build_global_assign(

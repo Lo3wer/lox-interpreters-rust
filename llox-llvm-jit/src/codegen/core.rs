@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use inkwell::OptimizationLevel;
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
@@ -21,6 +22,7 @@ pub struct CodeGen<'ctx> {
     pub(super) globals: RefCell<HashMap<String, GlobalValue<'ctx>>>,
     pub(super) locals: HashMap<usize, usize>,
     pub(super) scopes: RefCell<ScopeTable<'ctx>>,
+    pub(super) runtime_error_exit: RefCell<Option<BasicBlock<'ctx>>>,
 }
 
 impl<'ctx> CodeGen<'ctx> {
@@ -49,14 +51,20 @@ impl<'ctx> CodeGen<'ctx> {
             .ok_or_else(|| CodeGenError::Llvm {
                 message: "failed to create native target machine".to_string(),
             })?;
+        let module = context.create_module("llox_module");
+        module.set_triple(&triple);
+        let data_layout = machine.get_target_data().get_data_layout();
+        module.set_data_layout(&data_layout);
+
         Ok(CodeGen {
             context,
             builder: context.create_builder(),
-            module: context.create_module("llox_module"),
+            module,
             machine,
             globals: RefCell::new(HashMap::new()),
             locals,
             scopes: RefCell::new(ScopeTable::default()),
+            runtime_error_exit: RefCell::new(None),
         })
     }
 
@@ -69,20 +77,32 @@ impl<'ctx> CodeGen<'ctx> {
         for statement in statements {
             self.compile_stmt(statement)?;
         }
-        let zero = i32_type.const_int(0, false);
-        self.builder
-            .build_return(Some(&zero))
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
+        if let Some(block) = self.builder.get_insert_block()
+            && block.get_terminator().is_none()
+        {
+            let zero = i32_type.const_int(0, false);
+            self.builder
+                .build_return(Some(&zero))
+                .map_err(|error| CodeGenError::Llvm {
+                    message: error.to_string(),
+                })?;
+        }
         Ok(())
     }
 
     pub fn optimize(&self) -> Result<(), CodeGenError> {
+        self.verify()?;
         self.module
             .run_passes("default<O1>", &self.machine, PassBuilderOptions::create())
             .map_err(|error| CodeGenError::Llvm {
                 message: error.to_string(),
-            })
+            })?;
+        self.verify()
+    }
+
+    pub fn verify(&self) -> Result<(), CodeGenError> {
+        self.module.verify().map_err(|error| CodeGenError::Llvm {
+            message: format!("LLVM module verification failed: {error}"),
+        })
     }
 }
