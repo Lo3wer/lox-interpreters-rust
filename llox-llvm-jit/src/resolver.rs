@@ -10,7 +10,7 @@ pub struct Resolver {
     current_function: Option<FunctionType>,
     current_class: Option<ClassType>,
     errors: Vec<ResolveError>,
-    locals: HashMap<Expr, usize>,
+    locals: HashMap<usize, usize>,
 }
 
 impl Resolver {
@@ -24,7 +24,7 @@ impl Resolver {
         }
     }
 
-    pub fn locals(&self) -> &HashMap<Expr, usize> {
+    pub fn locals(&self) -> &HashMap<usize, usize> {
         &self.locals
     }
 
@@ -270,7 +270,7 @@ impl Resolver {
     fn resolve_local(&mut self, expression: &Expr, name: &Token) {
         for (i, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(name.lexeme()) {
-                self.locals.insert(expression.clone(), i);
+                self.locals.insert(expression.id(), i);
                 return;
             }
         }

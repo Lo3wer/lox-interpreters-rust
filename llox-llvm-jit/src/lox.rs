@@ -123,15 +123,12 @@ impl Lox {
             }
         }
 
-        // Phase 3: codegen consumes `statements` and `resolver.locals()` here.
-        let _locals = resolver.locals();
-
         if statements.is_empty() {
             return;
         }
 
         let llvm_context = Context::create();
-        let codegen = match CodeGen::new(&llvm_context) {
+        let codegen = match CodeGen::new(&llvm_context, resolver.locals().clone()) {
             Ok(codegen) => codegen,
             Err(error) => {
                 eprintln!("Code generation error: {:?}", error);

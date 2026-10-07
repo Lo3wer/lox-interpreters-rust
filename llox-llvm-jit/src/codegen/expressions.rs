@@ -46,11 +46,32 @@ impl<'ctx> CodeGen<'ctx> {
 
             Expr::Grouping { expression, .. } => self.compile_expr(expression),
 
-            Expr::Variable { name, .. } => self.build_global_load(name.lexeme(), name.line()),
+            Expr::Variable { name, id } => {
+                if let Some(slot) = self.resolved_local(*id, name.lexeme())? {
+                    Ok(self
+                        .builder
+                        .build_load(self.lox_value_type(), slot, name.lexeme())
+                        .map_err(|error| CodeGenError::Llvm {
+                            message: error.to_string(),
+                        })?
+                        .into_struct_value())
+                } else {
+                    self.build_global_load(name.lexeme(), name.line())
+                }
+            }
 
-            Expr::Assign { name, value, .. } => {
+            Expr::Assign { name, value, id } => {
                 let rhs = self.compile_expr(value)?;
-                self.build_global_assign(name.lexeme(), rhs, name.line())
+                if let Some(slot) = self.resolved_local(*id, name.lexeme())? {
+                    self.builder
+                        .build_store(slot, rhs)
+                        .map_err(|error| CodeGenError::Llvm {
+                            message: error.to_string(),
+                        })?;
+                    Ok(rhs)
+                } else {
+                    self.build_global_assign(name.lexeme(), rhs, name.line())
+                }
             }
 
             Expr::Unary {
@@ -294,7 +315,10 @@ impl<'ctx> CodeGen<'ctx> {
             })?;
 
         self.builder.position_at_end(err_bb);
-        self.build_runtime_error(operator.line(), "Operands must be two numbers or two strings.")?;
+        self.build_runtime_error(
+            operator.line(),
+            "Operands must be two numbers or two strings.",
+        )?;
         self.builder
             .build_return(Some(&self.context.i32_type().const_int(70, false)))
             .map_err(|error| CodeGenError::Llvm {
@@ -319,11 +343,12 @@ impl<'ctx> CodeGen<'ctx> {
     ) -> Result<StructValue<'ctx>, CodeGenError> {
         let left = self.as_f64(lhs);
         let right = self.as_f64(rhs);
-        let result = self.builder.build_float_add(left, right, "addtmp").map_err(|error| {
-            CodeGenError::Llvm {
+        let result = self
+            .builder
+            .build_float_add(left, right, "addtmp")
+            .map_err(|error| CodeGenError::Llvm {
                 message: error.to_string(),
-            }
-        })?;
+            })?;
         let bits = self
             .builder
             .build_bit_cast(result, self.context.i64_type(), "numbits")

@@ -9,6 +9,7 @@ use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::values::GlobalValue;
 
+use super::scopes::ScopeTable;
 use crate::datastructs::exceptions::CodeGenError;
 use crate::datastructs::stmt::Stmt;
 
@@ -18,10 +19,15 @@ pub struct CodeGen<'ctx> {
     pub module: Module<'ctx>,
     pub(super) machine: TargetMachine,
     pub(super) globals: RefCell<HashMap<String, GlobalValue<'ctx>>>,
+    pub(super) locals: HashMap<usize, usize>,
+    pub(super) scopes: RefCell<ScopeTable<'ctx>>,
 }
 
 impl<'ctx> CodeGen<'ctx> {
-    pub fn new(context: &'ctx Context) -> Result<Self, CodeGenError> {
+    pub fn new(
+        context: &'ctx Context,
+        locals: HashMap<usize, usize>,
+    ) -> Result<Self, CodeGenError> {
         Target::initialize_native(&InitializationConfig::default()).map_err(|error| {
             CodeGenError::Llvm {
                 message: error.to_string(),
@@ -49,6 +55,8 @@ impl<'ctx> CodeGen<'ctx> {
             module: context.create_module("llox_module"),
             machine,
             globals: RefCell::new(HashMap::new()),
+            locals,
+            scopes: RefCell::new(ScopeTable::default()),
         })
     }
 
