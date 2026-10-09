@@ -1,12 +1,88 @@
-use inkwell::IntPredicate;
-use inkwell::types::StructType;
-use inkwell::values::{FloatValue, IntValue, StructValue};
+use inkwell::types::{IntType, StructType};
+use inkwell::values::{FloatValue, IntValue, PointerValue, StructValue};
+use inkwell::{AddressSpace, IntPredicate};
 
 use super::CodeGen;
 use crate::datastructs::exceptions::CodeGenError;
 use crate::runtime::{TAG_BOOL, TAG_NIL};
 
 impl<'ctx> CodeGen<'ctx> {
+    pub(super) fn usize_type(&self) -> IntType<'ctx> {
+        self.context
+            .ptr_sized_int_type(&self.machine.get_target_data(), None)
+    }
+
+    pub(super) fn lox_string_type(&self) -> StructType<'ctx> {
+        self.context.struct_type(
+            &[
+                self.usize_type().into(),
+                self.context.ptr_type(AddressSpace::default()).into(),
+            ],
+            false,
+        )
+    }
+
+    pub(super) fn value_tag(
+        &self,
+        value: StructValue<'ctx>,
+    ) -> Result<IntValue<'ctx>, CodeGenError> {
+        Ok(self
+            .builder
+            .build_extract_value(value, 0, "tag")?
+            .into_int_value())
+    }
+
+    pub(super) fn value_bits(
+        &self,
+        value: StructValue<'ctx>,
+    ) -> Result<IntValue<'ctx>, CodeGenError> {
+        Ok(self
+            .builder
+            .build_extract_value(value, 1, "bits")?
+            .into_int_value())
+    }
+
+    pub(super) fn object_pointer(
+        &self,
+        value: StructValue<'ctx>,
+    ) -> Result<PointerValue<'ctx>, CodeGenError> {
+        Ok(self.builder.build_int_to_ptr(
+            self.value_bits(value)?,
+            self.context.ptr_type(AddressSpace::default()),
+            "object",
+        )?)
+    }
+
+    pub(super) fn string_length(
+        &self,
+        object: PointerValue<'ctx>,
+    ) -> Result<IntValue<'ctx>, CodeGenError> {
+        let field =
+            self.builder
+                .build_struct_gep(self.lox_string_type(), object, 0, "length_ptr")?;
+        Ok(self
+            .builder
+            .build_load(self.usize_type(), field, "length")?
+            .into_int_value())
+    }
+
+    pub(super) fn string_chars(
+        &self,
+        object: PointerValue<'ctx>,
+    ) -> Result<PointerValue<'ctx>, CodeGenError> {
+        let field =
+            self.builder
+                .build_struct_gep(self.lox_string_type(), object, 1, "chars_ptr")?;
+        Ok(self
+            .builder
+            .build_load(
+                self.context.ptr_type(AddressSpace::default()),
+                field,
+                "chars",
+            )?
+            .into_pointer_value())
+    }
+
     pub(super) fn lox_value_type(&self) -> StructType<'ctx> {
         self.context.struct_type(
             &[

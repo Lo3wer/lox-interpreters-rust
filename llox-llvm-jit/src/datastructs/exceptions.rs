@@ -30,6 +30,14 @@ pub enum CodeGenError {
     },
 }
 
+impl From<inkwell::builder::BuilderError> for CodeGenError {
+    fn from(error: inkwell::builder::BuilderError) -> Self {
+        Self::Llvm {
+            message: error.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RuntimeException {
     Llvm { message: String },

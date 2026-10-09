@@ -1,6 +1,6 @@
-use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
+use inkwell::module::Linkage;
 use inkwell::values::{FloatValue, StructValue};
 
 use super::CodeGen;
@@ -27,19 +27,30 @@ impl<'ctx> CodeGen<'ctx> {
                     Ok(self.make_lox_value(TAG_NIL, bits))
                 }
                 Literal::String(string) => {
-                    let ptr = self
+                    // Byte constants preserve interior NULs. The extra terminator
+                    // gives empty literals backing storage but is not copied.
+                    let bytes = self.context.const_string(string.as_bytes(), true);
+                    let global = self.module.add_global(bytes.get_type(), None, "str_bytes");
+                    global.set_linkage(Linkage::Private);
+                    global.set_constant(true);
+                    global.set_initializer(&bytes);
+                    let length = self.usize_type().const_int(string.len() as u64, false);
+                    let object = self
                         .builder
-                        .build_global_string_ptr(string, "str")
-                        .map_err(|error| CodeGenError::Llvm {
-                            message: error.to_string(),
+                        .build_call(
+                            self.declare_lox_string_alloc(),
+                            &[global.as_pointer_value().into(), length.into()],
+                            "str_alloc",
+                        )?
+                        .try_as_basic_value()
+                        .basic()
+                        .ok_or_else(|| CodeGenError::Llvm {
+                            message: "string allocation returned no value".to_string(),
                         })?
-                        .as_pointer_value();
-                    let bits = self
-                        .builder
-                        .build_ptr_to_int(ptr, self.context.i64_type(), "strptr")
-                        .map_err(|error| CodeGenError::Llvm {
-                            message: error.to_string(),
-                        })?;
+                        .into_pointer_value();
+                    let bits =
+                        self.builder
+                            .build_ptr_to_int(object, self.context.i64_type(), "strptr")?;
                     Ok(self.make_lox_value(TAG_STRING, bits))
                 }
             },
@@ -310,88 +321,43 @@ impl<'ctx> CodeGen<'ctx> {
         operator: &Token,
         rhs: StructValue<'ctx>,
     ) -> Result<StructValue<'ctx>, CodeGenError> {
-        let tag_l = self
-            .builder
-            .build_extract_value(lhs, 0, "lhs_tag")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .into_int_value();
-        let tag_r = self
-            .builder
-            .build_extract_value(rhs, 0, "rhs_tag")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .into_int_value();
-
-        let num_tag = self.context.i8_type().const_int(TAG_NUMBER as u64, false);
-        let str_tag = self.context.i8_type().const_int(TAG_STRING as u64, false);
-
-        let lhs_num = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, tag_l, num_tag, "lhs_num")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-        let rhs_num = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, tag_r, num_tag, "rhs_num")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-        let both_num = self
-            .builder
-            .build_and(lhs_num, rhs_num, "both_num")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-
-        let lhs_str = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, tag_l, str_tag, "lhs_str")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-        let rhs_str = self
-            .builder
-            .build_int_compare(IntPredicate::EQ, tag_r, str_tag, "rhs_str")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-        let both_str = self
-            .builder
-            .build_and(lhs_str, rhs_str, "both_str")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-
+        let tag = self.value_tag(lhs)?;
+        let same_tag = self.builder.build_int_compare(
+            IntPredicate::EQ,
+            tag,
+            self.value_tag(rhs)?,
+            "add_same_tag",
+        )?;
+        let dispatch = self.append_block("add_dispatch")?;
         let num_bb = self.append_block("add_num")?;
-        let str_check_bb = self.append_block("add_str_check")?;
         let str_bb = self.append_block("add_str")?;
         let err_bb = self.append_block("add_err")?;
         let done_bb = self.append_block("add_done")?;
 
-        self.conditional_branch_if_open(both_num, num_bb, str_check_bb)?;
-
-        self.builder.position_at_end(str_check_bb);
-        self.conditional_branch_if_open(both_str, str_bb, err_bb)?;
+        self.conditional_branch_if_open(same_tag, dispatch, err_bb)?;
+        self.builder.position_at_end(dispatch);
+        self.builder.build_switch(
+            tag,
+            err_bb,
+            &[
+                (
+                    self.context.i8_type().const_int(TAG_NUMBER as u64, false),
+                    num_bb,
+                ),
+                (
+                    self.context.i8_type().const_int(TAG_STRING as u64, false),
+                    str_bb,
+                ),
+            ],
+        )?;
 
         self.builder.position_at_end(num_bb);
         let num_result = self.num_add_unchecked(lhs, rhs)?;
-        if !self.branch_if_open(done_bb)? {
-            return Err(CodeGenError::Llvm {
-                message: "numeric addition arm has no fallthrough value".to_string(),
-            });
-        }
+        self.branch_if_open(done_bb)?;
 
         self.builder.position_at_end(str_bb);
         let str_result = self.string_concat_unchecked(lhs, rhs)?;
-        if !self.branch_if_open(done_bb)? {
-            return Err(CodeGenError::Llvm {
-                message: "string addition arm has no fallthrough value".to_string(),
-            });
-        }
+        self.branch_if_open(done_bb)?;
 
         self.builder.position_at_end(err_bb);
         self.emit_runtime_failure(
@@ -402,10 +368,7 @@ impl<'ctx> CodeGen<'ctx> {
         self.builder.position_at_end(done_bb);
         let phi = self
             .builder
-            .build_phi(self.lox_value_type(), "add_result")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
+            .build_phi(self.lox_value_type(), "add_result")?;
         phi.add_incoming(&[(&num_result, num_bb), (&str_result, str_bb)]);
         Ok(phi.as_basic_value().into_struct_value())
     }
@@ -417,18 +380,10 @@ impl<'ctx> CodeGen<'ctx> {
     ) -> Result<StructValue<'ctx>, CodeGenError> {
         let left = self.as_f64(lhs);
         let right = self.as_f64(rhs);
-        let result = self
-            .builder
-            .build_float_add(left, right, "addtmp")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
+        let result = self.builder.build_float_add(left, right, "addtmp")?;
         let bits = self
             .builder
-            .build_bit_cast(result, self.context.i64_type(), "numbits")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
+            .build_bit_cast(result, self.context.i64_type(), "numbits")?
             .into_int_value();
         Ok(self.make_lox_value(TAG_NUMBER, bits))
     }
@@ -439,20 +394,8 @@ impl<'ctx> CodeGen<'ctx> {
         operator: &Token,
         rhs: StructValue<'ctx>,
     ) -> Result<(FloatValue<'ctx>, FloatValue<'ctx>), CodeGenError> {
-        let lhs_tag = self
-            .builder
-            .build_extract_value(lhs, 0, "lhs_tag")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .into_int_value();
-        let rhs_tag = self
-            .builder
-            .build_extract_value(rhs, 0, "rhs_tag")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .into_int_value();
+        let lhs_tag = self.value_tag(lhs)?;
+        let rhs_tag = self.value_tag(rhs)?;
         let number_tag = self.context.i8_type().const_int(TAG_NUMBER as u64, false);
         let lhs_is_number = self
             .builder
@@ -522,55 +465,19 @@ impl<'ctx> CodeGen<'ctx> {
         lhs: StructValue<'ctx>,
         rhs: StructValue<'ctx>,
     ) -> Result<StructValue<'ctx>, CodeGenError> {
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let left_bits = self
-            .builder
-            .build_extract_value(lhs, 1, "left_string_bits")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .into_int_value();
-        let right_bits = self
-            .builder
-            .build_extract_value(rhs, 1, "right_string_bits")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
-            .into_int_value();
-        let left = self
-            .builder
-            .build_int_to_ptr(left_bits, ptr_type, "left_string")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-        let right = self
-            .builder
-            .build_int_to_ptr(right_bits, ptr_type, "right_string")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
         let result = self
             .builder
             .build_call(
-                self.declare_lox_concat_strings(),
-                &[left.into(), right.into()],
+                self.declare_lox_string_concat(),
+                &[lhs.into(), rhs.into()],
                 "concat",
-            )
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?
+            )?
             .try_as_basic_value()
             .basic()
             .ok_or_else(|| CodeGenError::Llvm {
                 message: "string concatenation returned no value".to_string(),
             })?
-            .into_pointer_value();
-        let bits = self
-            .builder
-            .build_ptr_to_int(result, self.context.i64_type(), "string_bits")
-            .map_err(|error| CodeGenError::Llvm {
-                message: error.to_string(),
-            })?;
-        Ok(self.make_lox_value(TAG_STRING, bits))
+            .into_struct_value();
+        Ok(result)
     }
 }

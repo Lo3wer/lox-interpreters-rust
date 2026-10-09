@@ -1,5 +1,6 @@
 mod control_flow;
 mod core;
+mod equality;
 mod execution;
 mod expressions;
 mod globals;
